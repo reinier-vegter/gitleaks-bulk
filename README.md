@@ -25,6 +25,9 @@ This project utilizes the fantastic [gitleaks](https://github.com/gitleaks/gitle
 # Run
 
 ## From docker image (simplest way)
+
+Visit [gitleaks-bulk on Docker hub](https://hub.docker.com/r/rvegter/gitleaks-bulk) for details.
+
 ```shell
 docker pull rvegter/gitleaks-bulk
 alias gitleaks-bulk='docker run --rm -ti -v "$PWD":/work -u $(id -u ${USER}):$(id -g ${USER}) rvegter/gitleaks-bulk:latest'
