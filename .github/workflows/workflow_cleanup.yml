@@ -1,0 +1,45 @@
+name: Cleanup Workflow Runs
+
+on:
+  workflow_dispatch:
+    #Allows manual triggering
+  schedule:
+    - cron: '0 0 * * *' # Run daily at midnight (UTC)
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install PyGithub requests
+      - name: Cleanup Build release
+        env:
+          GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_WORKFLOW_NAME: "build_release.yml"
+        run: python .github/scripts/workflow_cleanup.py
+
+      - name: Cleanup version-increment
+        env:
+          GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_WORKFLOW_NAME: "version-increment.yml"
+        run: python .github/scripts/workflow_cleanup.py
+
+      - name: Cleanup self
+        env:
+          GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_WORKFLOW_NAME: "workflow_cleanup.yml"
+        run: python .github/scripts/workflow_cleanup.py
