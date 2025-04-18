@@ -1,0 +1,130 @@
+[extend]
+# useDefault will extend the base configuration with the default gitleaks config:
+# https://github.com/gitleaks/gitleaks/blob/master/config/gitleaks.toml
+# useDefault = true
+path = "gitleaks.toml"
+# If there are any rules you don't want to inherit, they can be specified here.
+# Note disabled rules either yield too many false positives or are replaced as `gb-XXXXX` to improve.
+disabledRules = [ "generic-api-key", "square-access-token", "facebook-page-access-token", "private-key" ] 
+
+title = "gitleaks config (custom)"
+
+[allowlist]
+paths = [
+  '''(?i)(test|tst|acc|accept|local|dev|poc|ProofOfConcept|mock|sealed)''',
+]
+stopwords = [
+    "changeit",
+    "encrypted",
+    "sealed",
+    ".crt",
+    "placeholder",
+    "secret",
+    "password",
+    "dev",
+    "local"
+]
+
+[[rules]]
+id = "gb-private-key"
+description = "Identified a Private Key, which may compromise cryptographic security and sensitive data encryption."
+regex = '''(?i)-----BEGIN[ A-Z0-9_-]{0,100}PRIVATE KEY(?: BLOCK)?-----[\s\S-]*?KEY(?: BLOCK)?-----'''
+keywords = ["-----begin"]
+  [[rules.allowlists]]
+  # Short oneliners like `.replaceAll(/(?m)(-----BEGIN PRIVATE KEY-----[\s\S]*?-----END PRIVATE KEY-----)/,'*******')`
+  regexes = [ '''BEGIN[ A-Z0-9_-]{0,100}PRIVATE KEY.{10,100}END''' ]
+
+[[rules]]
+id = "gb-script-py-password"
+description = "Find passwords in python scripts"
+regex = '''(?:password|token|secret|pass)=['"]([^'"{}]+)['"]'''
+entropy = 2
+keywords = [
+    "pass",
+    "token",
+    "secret",
+]
+path = '''(^|/).*\.py$'''
+
+  [[rules.allowlists]]
+  regexTarget = "line"
+  regexes = [ '''(?i)(?:dev|test|local|replace|example)''' ]
+  stopwords = [
+      "example",
+      "pass",
+      "replace",
+      "dev",
+      "local"
+  ]
+
+[[rules]]
+id = "gb-dockerfile-password"
+description = "Find passwords in Dockerfile"
+regex = '''(?i)(?:password|token|secret|pass)[a-zA-Z0-9_.-]*=([^${ ]+)'''
+entropy = 2
+keywords = [
+    "pass",
+    "token",
+    "secret",
+]
+path = '''(?i)(^|/)Dockerfile[a-zA-Z0-9._-]*$'''
+
+  [[rules.allowlists]]
+  stopwords = [
+      "example",
+      "pass",
+      "replace",
+      "var",
+      "dev"
+  ]
+
+[[rules]]
+id = "gb-yaml-env-password"
+description = "Find passwords in yaml files (env var format, like docker-compose.yaml)"
+regex = '''(?i)(?:password|token|secret|pass)[a-zA-Z0-9_.-]*=['"]?([^${ |\n]+)['"]?'''
+entropy = 2
+keywords = [
+    "pass",
+    "token",
+    "secret",
+    "name",
+    "dev"
+]
+path = '''(?:^|/).*\.(?:yaml|yml)$'''
+
+  [[rules.allowlists]]
+  regexTarget = "line"
+  regexes = [ '''.*=.*(?:name|space|example|replace|encr|var|name).*''' ]
+  stopwords = [
+      "example",
+      "pass",
+      "replace",
+      "var",
+      "name"
+  ]
+
+[[rules]]
+id = "gb-yaml-password"
+description = "Find passwords in yaml files"
+regex = '''(?i)(?:password|token|pass|apikey|api_key)[a-zA-Z0-9_.-]*:[ ]*["']?([^${ \n|]+)["']?'''
+entropy = 3
+keywords = [
+    "pass",
+    "token",
+]
+path = '''(?:^|/).*\.(?:yaml|yml)$'''
+
+  [[rules.allowlists]]
+  regexTarget = "line"
+  regexes = [
+    '''.*:.*(?:name|space|example|replace|encr|var|name).*''',
+    ''':[ ]*BAMSCRT@0''', # bamboo encrypted values
+    '''.*:[ ]*Ag[A-Za-z0-9+/=]{100,}''', # k8s sealed secret
+  ]
+  stopwords = [
+      "example",
+      "pass",
+      "replace",
+      "var",
+      "name"
+  ]

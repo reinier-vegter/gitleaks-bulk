@@ -1,0 +1,7 @@
+GITLAB_URL=https://my-gitlab.example.com
+GITLAB_TOKEN=[personal access token]
+BITBUCKET_DC_URL=https://my-bitbucket.example.com
+BITBUCKET_DC_TOKEN=[personal access token]
+BITBUCKET_CLOUD_TOKEN=[username]:[app password]
+GITHUB_URL=https://api.github.com
+GITHUB_TOKEN=[personal access token]

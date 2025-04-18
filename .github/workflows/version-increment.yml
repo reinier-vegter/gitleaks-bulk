@@ -1,0 +1,102 @@
+name: Auto-Increment Minor Version and Docker Build
+
+on:
+  push:
+    branches:
+      - master  # Trigger on pushes to the main branch
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get next version
+        uses: reecetech/version-increment@2024.10.1
+        id: version
+        with:
+          scheme: semver
+          increment: patch
+
+      - name: Push new tag
+        run: git tag ${{ steps.version.outputs.version }} && git push --tags
+
+      - name: Trigger Downstream Workflow (Using PAT)
+        if: github.event_name == 'push' #Only run this if the trigger was a push
+        uses: peter-evans/repository-dispatch@v2
+        with:
+          token: ${{ secrets.PAT_TOKEN }} # Use the PAT here!
+          event-type: tag-pushed # Or another custom event type
+          client-payload: '{"ref": "${{ github.ref }}", "tag": "${{ steps.version.outputs.version }}"}'
+#          client-payload: '{"ref": "refs/tags/${{ steps.version.outputs.version }}"}'
+
+#    steps:
+#      - name: Checkout Code
+#        uses: actions/checkout@v3
+#        with:
+#          fetch-depth: 0  # Fetch all history for tag creation (Important)
+#
+##      - name: Set up Docker Buildx
+##        id: buildx
+##        uses: docker/setup-buildx-action@v2
+##
+##      - name: Install jq
+##        run: sudo apt-get update && sudo apt-get install -y jq
+##
+##      - name: Get Current Version
+##        id: get_version
+##        run: |
+##          # Default value if version file doesn't exist
+##          if [ ! -f version.json ]; then
+##            echo "No version.json found, creating one."
+##            INITIAL_VERSION="0.1.0"
+##            echo "{\"version\": \"$INITIAL_VERSION\"}" > version.json
+##          fi
+##
+##          # Read current version from version.json
+##          CURRENT_VERSION=$(jq -r '.version' version.json)
+##          echo "Current version: $CURRENT_VERSION"
+##          echo "::set-output name=current_version::${CURRENT_VERSION}" # Store version
+##
+##      - name: Increment Minor Version
+##        id: increment_version
+##        run: |
+##          # Extract major, minor, and patch
+##          IFS='.' read -r -a version_parts <<< "${{ steps.get_version.outputs.current_version }}"
+##          MAJOR=${version_parts[0]}
+##          MINOR=$((version_parts[1] + 1))
+##          PATCH=${version_parts[2]}
+##
+##          # New version
+##          NEW_VERSION="$MAJOR.$MINOR.$PATCH"
+##          echo "New version: $NEW_VERSION"
+##          echo "::set-output name=new_version::${NEW_VERSION}"
+##
+##      - name: Update Version File (version.json)
+##        id: update_version_file
+##        run: |
+##          # Update version.json
+##          jq --arg new_version "${{ steps.increment_version.outputs.new_version }}" '.version = $new_version' version.json > version.json.tmp && mv version.json.tmp version.json
+##
+##          # Check if the version was correctly updated.
+##          NEW_VERSION_CHECK=$(jq -r '.version' version.json)
+##          if [[ "$NEW_VERSION_CHECK" != "${{ steps.increment_version.outputs.new_version }}" ]]; then
+##            echo "ERROR: Version update failed!"
+##            exit 1
+##          fi
+##
+##      - name: Commit Version Bump
+##        id: commit_version_bump
+##        run: |
+##          git config --global user.name "GITHUB CI"
+##          git config --global user.email "noreply@reiniervegter.dev"
+##          git add version.json
+##          git commit -m "Bump version to ${{ steps.increment_version.outputs.new_version }}"
+##          git tag -f "v${{ steps.increment_version.outputs.new_version }}" # Overwrite if tag already exists
+##          git push --force origin "HEAD" "refs/tags/v${{ steps.increment_version.outputs.new_version }}" # Force push the tag
+##        env:
+##          #GITHUB_TOKEN is automatically provided by GitHub Actions
+##          GITHUB_TOKEN: ${{ secrets.VERSION_BUMP_PAT }} # Required for git push
