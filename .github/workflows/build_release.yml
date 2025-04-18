@@ -119,12 +119,6 @@ jobs:
           name: gitleaks-bulk-ubuntu
           path: dist/ubuntu/gitleaks-bulk
 
-      - name: Upload dist folder
-        uses: actions/upload-artifact@v4
-        with:
-          name: nuitka-build
-          path: .dist
-
 #  build-windows:
 #    needs: lint
 #    runs-on: windows-latest
@@ -179,7 +173,7 @@ jobs:
           echo "Binary executed successfully (exit code 0)."
 
   release-binaries:
-    needs: [build-ubuntu, test-nuitka-binary-ubuntu]
+    needs: [build-ubuntu, test-nuitka-binary-ubuntu, set_versions]
     #if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
@@ -190,7 +184,10 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
-          files: ./artifacts/*
+          tag_name: ${{ needs.set_versions.outputs.numerical }}
+          files: ./artifacts/gitleaks-bulk
+          fail_on_unmatched_files: true
+          make_latest: true
 
   build-release-docker:
     needs: [ deps, tests, set_versions ]
