@@ -16,6 +16,13 @@ and (interactively) scan one/many with Gitleaks.
 ## Acknowledgements
 This project utilizes the fantastic [gitleaks](https://github.com/gitleaks/gitleaks) tool by Zachary Rice and contributors for detecting secrets in code. We are grateful for their work under the MIT License.
 
+## Maintainers
+This project is maintained by **Reinier Vegter**.
+
+* **[Github](https://github.com/reinier-vegter)**
+* **[LinkedIn](https://www.linkedin.com/in/reiniervegter/)**
+* **[reiniervegter.dev](https://reiniervegter.dev)**
+
 # Prerequisites
 - docker up and working
 - `.some_info` file with base URL's and / personal access tokens.
