@@ -1,5 +1,5 @@
 # General
-[![Build Status](https://github.com/rvegter/gitleaks-bulk/actions/workflows/build_release.yml/badge.svg)](https://github.com/rvegter/gitleaks-bulk/actions/workflows/build_release.yml)
+[![Build and Release](https://github.com/reinier-vegter/gitleaks-bulk/actions/workflows/build_release.yml/badge.svg)](https://github.com/reinier-vegter/gitleaks-bulk/actions/workflows/build_release.yml)
 
 CLI tool to fetch project/repository data from several VCS backends like Bitbucket (Datacenter/Cloud)/Gitlab/Github
 and (interactively) scan one/many with Gitleaks.
