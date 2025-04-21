@@ -19,7 +19,7 @@ class GithubBackend(VcsBackend):
     def shortname() -> str:
         return "gh"
 
-    def get_git_username_password(self) -> Tuple[str, str]:
+    def get_git_username_password(self) -> tuple[str, str]:
         return "x-access-token", self.connection_input['token']
 
     def setup(self, connection_input: ConnectionInput) -> None:
@@ -54,13 +54,13 @@ class GithubBackend(VcsBackend):
         return self
 
     def fetchAllRepos(self, progress: bool = False,
-                      verbose: bool = False) -> Dict[int, Repo]:
+                      verbose: bool = False) -> dict[int, Repo]:
         print(f"({self.name()}) Fetching repo data from {self.endpoint_identifier}")
         if self.client is None:
             raise Exception(
                 "GitHub connection is not set up. Call setup() first.")
 
-        repos: Dict[int, Repo] = {}
+        repos: dict[int, Repo] = {}
 
         # Get the authenticated user
         user = self.client.get_user()

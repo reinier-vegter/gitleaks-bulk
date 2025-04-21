@@ -39,14 +39,14 @@ class VcsBackend(Protocol):
     def shortname() -> str:
         """Returns the shortname of the backend."""
 
-    def get_git_username_password(self) -> Tuple[str, str]:
+    def get_git_username_password(self) -> tuple[str, str]:
         """Return git username and password"""
 
     def setup(self, connection_input: ConnectionInput) -> None:
         """Sets up the backend connection."""
 
     def fetchAllRepos(self, progress: bool = False,
-                      verbose: bool = False) -> Dict[int, Repo]:
+                      verbose: bool = False) -> dict[int, Repo]:
         """Fetches all repositories from the backend."""
 
     def enrichRepo(self, repo: Repo, verbose: bool = False) -> Repo:
