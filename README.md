@@ -46,7 +46,7 @@ gitleaks-bulk --help
 
 ## Download the binary
 
-- Download binary from [Ubuntu binary](./dist/ubuntu/gitleaks-bulk) (not implemented yet)
+- Download binary from [releases](https://github.com/reinier-vegter/gitleaks-bulk/releases). (supports Ubuntu 22.04+)
 - chmod +x gitleaks-bulk
 - `./gitleaks-bulk --help`
 
