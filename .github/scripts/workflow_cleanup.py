@@ -27,6 +27,7 @@ def delete_workflow_runs(repo, workflow_name=None):
     """
 
     url = f"https://api.github.com/repos/{owner}/{repo_name}/actions/runs"
+    latest_runs = {}
     params = {"status": "completed", "per_page": 100}  # Adjust per_page as needed
 
     if workflow_name:
@@ -46,15 +47,25 @@ def delete_workflow_runs(repo, workflow_name=None):
             runs = data["workflow_runs"]
             print(f"Found {len(runs)} completed runs (page)")
 
+            # Find the latest run for each workflow
+            for run in runs:
+                workflow_id = run["workflow_id"]
+                if workflow_id not in latest_runs or run["run_number"] > latest_runs[workflow_id]["run_number"]:
+                    latest_runs[workflow_id] = run
+
             for run in runs:
                 run_id = run["id"]
-                print(f"Deleting run ID: {run_id}...")
-                delete_url = f"https://api.github.com/repos/{owner}/{repo_name}/actions/runs/{run_id}"
-                delete_response = requests.delete(delete_url, headers=headers)
-                if delete_response.status_code == 204:  # No Content - Success
-                    print(f"Successfully deleted run ID: {run_id}")
+                workflow_id = run["workflow_id"]
+                if latest_runs[workflow_id]["id"] != run_id:
+                    print(f"Deleting run ID: {run_id}...")
+                    delete_url = f"https://api.github.com/repos/{owner}/{repo_name}/actions/runs/{run_id}"
+                    delete_response = requests.delete(delete_url, headers=headers)
+                    if delete_response.status_code == 204:  # No Content - Success
+                        print(f"Successfully deleted run ID: {run_id}")
+                    else:
+                        print(f"Error deleting run ID {run_id}: {delete_response.status_code} - {delete_response.text}")
                 else:
-                    print(f"Error deleting run ID {run_id}: {delete_response.status_code} - {delete_response.text}")
+                    print(f"Skipping latest run ID: {run_id} for workflow {workflow_id}")
             # Check for pagination
             if "next" in response.links:
                 url = response.links["next"]["url"]
