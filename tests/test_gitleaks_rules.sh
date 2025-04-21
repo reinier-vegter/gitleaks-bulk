@@ -2,7 +2,7 @@
 
 # --- Configuration ---
 GITLEAKS_CONFIG_FILE="gitleaks-custom.toml"
-SAMPLES_DIR="tests/gitleaks_samples"
+SAMPLES_DIR="gitleaks_samples"
 GITLEAKS_CMD="gitleaks" # Assumes gitleaks is in PATH
 
 # Check if gitleaks command exists
@@ -55,15 +55,17 @@ for (( i=0; i<${#tests[@]}; i+=2 )); do
         continue
     fi
 
+    gitleaks_command="$GITLEAKS_CMD detect --config \"$GITLEAKS_CONFIG_FILE\" --source \"$sample_file\" --enable-rule \"$rule_id\" --no-git --verbose --log-level=error"
+
     # Run gitleaks targeting the specific rule and file
     # We expect a non-zero exit code (leak found)
-    $GITLEAKS_CMD detect \
-        --config "$GITLEAKS_CONFIG_FILE" \
-        --source "$sample_file" \
-        --enable-rule "$rule_id" \
-        --no-git \
-        --verbose \
-        --log-level=error > /dev/null 2>&1 # Suppress normal output, only care about exit code
+    if [[ "$*" == *"--verbose"* ]]; then
+        echo "Executing: $gitleaks_command" >&2
+    fi
+
+    eval "$gitleaks_command" > /dev/null 2>&1 # Suppress normal output, only care about exit code
+
+
 
     exit_code=$?
 
