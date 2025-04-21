@@ -108,8 +108,6 @@ jobs:
           standalone: true
           output-file: gitleaks-bulk
           output-dir: dist/ubuntu
-          static-libpython: yes
-          lto: yes
           assume-yes-for-downloads: yes
           include-data-files: template*.toml=./
 
@@ -187,7 +185,6 @@ jobs:
           tag_name: ${{ needs.set_versions.outputs.numerical }}
           files: ./artifacts/gitleaks-bulk
           fail_on_unmatched_files: true
-          make_latest: true
 
   build-release-docker:
     needs: [ deps, tests, set_versions ]
