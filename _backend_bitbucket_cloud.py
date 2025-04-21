@@ -33,7 +33,8 @@ class BitbucketCloudBackend(VcsBackend):
             self.username = tmp[0]
             self.token = tmp[1]
         else:
-            raise Exception("Username missing from token. Format token like '[username]:[token]'")
+            raise Exception(
+                "Username missing from token. Format token like '[username]:[token]'")
 
         try:
             self.client = Bitbucket(
@@ -45,38 +46,48 @@ class BitbucketCloudBackend(VcsBackend):
 
             # Verify connection by trying to fetch workspaces
             workspaces_response = self.client.get('workspaces')
-            if not workspaces_response or 'values' not in workspaces_response or not workspaces_response['values']:
-                raise Exception("No workspaces found. Check your token and permissions.")
+            if not workspaces_response or 'values' not in workspaces_response or not workspaces_response[
+                    'values']:
+                raise Exception(
+                    "No workspaces found. Check your token and permissions.")
         except Exception as e:
             raise Exception(
                 f"Failed to setup Bitbucket Cloud connection. Check your credentials and URL: {str(e)}") from e
         return self
 
-    def fetchAllRepos(self, progress: bool = False, verbose: bool = False) -> Dict[int, Repo]:
+    def fetchAllRepos(self, progress: bool = False,
+                      verbose: bool = False) -> Dict[int, Repo]:
         print(f"({self.name()}) Fetching repo data from {self.endpoint_identifier}")
         if self.client is None:
-            raise Exception("Bitbucket Cloud client is not set up. Call setup() first.")
+            raise Exception(
+                "Bitbucket Cloud client is not set up. Call setup() first.")
 
         try:
             # Get all workspaces (equivalent to projects in Bitbucket Server)
             workspaces_response = self.client.get('workspaces')
             workspaces = workspaces_response.get('values', [])
         except Exception as e:
-            raise Exception(f"Failed to fetch workspaces from Bitbucket Cloud: {str(e)}") from e
+            raise Exception(
+                f"Failed to fetch workspaces from Bitbucket Cloud: {str(e)}") from e
 
         repos: Dict[int, Repo] = {}
-        bar = Bar('Fetching repo data for workspaces', max=len(workspaces)) if progress else None
+        bar = Bar(
+            'Fetching repo data for workspaces',
+            max=len(workspaces)) if progress else None
 
         for workspace in workspaces:
             workspace_slug = workspace.get("slug")
-            if verbose: print(f"Fetching repo data for workspace [{workspace_slug}]")
+            if verbose:
+                print(f"Fetching repo data for workspace [{workspace_slug}]")
 
             try:
                 # Get all repositories in the workspace
-                repos_response = self.client.get(f'repositories/{workspace_slug}')
+                repos_response = self.client.get(
+                    f'repositories/{workspace_slug}')
                 workspace_repos = repos_response.get('values', [])
             except Exception as e:
-                raise Exception(f"Failed to fetch repositories for workspace {workspace_slug}: {str(e)}") from e
+                raise Exception(
+                    f"Failed to fetch repositories for workspace {workspace_slug}: {str(e)}") from e
 
             for repo_item in workspace_repos:
                 # Skip archived repositories (TODO)
@@ -92,9 +103,11 @@ class BitbucketCloudBackend(VcsBackend):
                             http_link = link.get("href")
 
                     # Generate a unique repo_id based on the repo UUID
-                    # Using hash to convert the UUID string to an integer for compatibility with existing code
+                    # Using hash to convert the UUID string to an integer for
+                    # compatibility with existing code
                     uuid = repo_item.get("uuid", "")
-                    repo_id = hash(uuid) & 0x7FFFFFFF  # Ensure positive integer
+                    # Ensure positive integer
+                    repo_id = hash(uuid) & 0x7FFFFFFF
 
                     repo_obj: Repo = {
                         "type": self.name(),
@@ -125,20 +138,23 @@ class BitbucketCloudBackend(VcsBackend):
             bar.finish()
 
         if not repos:
-            raise Exception("No repositories found. Check your token and permissions.")
+            raise Exception(
+                "No repositories found. Check your token and permissions.")
 
         return repos
 
     def enrichRepo(self, repo: Repo, verbose: bool = False) -> Repo:
         if self.client is None:
-            raise Exception("Bitbucket Cloud client is not set up. Call setup() first.")
+            raise Exception(
+                "Bitbucket Cloud client is not set up. Call setup() first.")
 
         try:
             workspace_slug = repo["group_key"]
             repo_slug = repo["repo_key"]
 
             # Get commits to find the latest one
-            commits_response = self.client.get(f'repositories/{workspace_slug}/{repo_slug}/commits')
+            commits_response = self.client.get(
+                f'repositories/{workspace_slug}/{repo_slug}/commits')
             commits = commits_response.get('values', [])
 
             if commits:
@@ -149,28 +165,33 @@ class BitbucketCloudBackend(VcsBackend):
                     commit_date_str = latest_commit['date']
                     try:
                         # Format is ISO 8601, e.g. "2023-01-15T12:34:56.789Z"
-                        commit_date = datetime.fromisoformat(commit_date_str.replace('Z', '+00:00'))
+                        commit_date = datetime.fromisoformat(
+                            commit_date_str.replace('Z', '+00:00'))
                     except ValueError:
                         commit_date = None
 
                 # Extract author information
                 author = latest_commit.get('author', {})
-                repo["contact_name"] = author.get('user', {}).get('display_name')
+                repo["contact_name"] = author.get(
+                    'user', {}).get('display_name')
                 repo["contact_mail"] = author.get('raw', '').split('<')[-1].split('>')[0] if '<' in author.get('raw',
                                                                                                                '') else None
 
                 # Get branch information
-                branches_response = self.client.get(f'repositories/{workspace_slug}/{repo_slug}/refs/branches')
+                branches_response = self.client.get(
+                    f'repositories/{workspace_slug}/{repo_slug}/refs/branches')
                 branches = branches_response.get('values', [])
 
                 # Find the branch this commit belongs to
                 for branch in branches:
-                    if branch.get('target', {}).get('hash') == latest_commit.get('hash'):
+                    if branch.get('target', {}).get(
+                            'hash') == latest_commit.get('hash'):
                         repo["latest_branch"] = branch.get('name')
                         break
 
         except Exception as e:
             if verbose:
-                print(f"Error enriching repo [{repo['group_key']}/{repo['repo_key']}]: {str(e)}")
+                print(
+                    f"Error enriching repo [{repo['group_key']}/{repo['repo_key']}]: {str(e)}")
 
         return repo

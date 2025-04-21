@@ -5,6 +5,7 @@ from typing import Dict, Tuple
 from data_types import Repo, ConnectionInput, VcsBackend
 from progress.bar import Bar
 
+
 class GithubBackend(VcsBackend):
     client: Github | None = None
     endpoint_identifier = ""
@@ -23,7 +24,8 @@ class GithubBackend(VcsBackend):
 
     def setup(self, connection_input: ConnectionInput) -> None:
         self.connection_input = connection_input
-        self.endpoint_identifier = connection_input.get("base_url", "https://api.github.com")
+        self.endpoint_identifier = connection_input.get(
+            "base_url", "https://api.github.com")
         print(f"({self.name()}) Connecting to {self.endpoint_identifier}")
         try:
             # Set up the GitHub connection
@@ -39,20 +41,24 @@ class GithubBackend(VcsBackend):
 
             # Test the connection
             self.client.get_user().login
-            print(f"Successfully connected to GitHub at {self.endpoint_identifier}")
+            print(
+                f"Successfully connected to GitHub at {self.endpoint_identifier}")
         except github.GithubException as e:
             if e.status == 401:
-                raise Exception(f"Authentication failed at {self.endpoint_identifier}. Please check your token.")
+                raise Exception(
+                    f"Authentication failed at {self.endpoint_identifier}. Please check your token.")
             else:
                 raise Exception(f"GitHub API error: {e}")
         except Exception as e:
             raise Exception(f"Connection error: {e}")
         return self
 
-    def fetchAllRepos(self, progress: bool = False, verbose: bool = False) -> Dict[int, Repo]:
+    def fetchAllRepos(self, progress: bool = False,
+                      verbose: bool = False) -> Dict[int, Repo]:
         print(f"({self.name()}) Fetching repo data from {self.endpoint_identifier}")
         if self.client is None:
-            raise Exception("GitHub connection is not set up. Call setup() first.")
+            raise Exception(
+                "GitHub connection is not set up. Call setup() first.")
 
         repos: Dict[int, Repo] = {}
 
@@ -74,10 +80,12 @@ class GithubBackend(VcsBackend):
         total_repos = len(all_repos)
 
         if total_repos == 0:
-            print("Did not get data from API, you probably have no valid session or no repositories.")
+            print(
+                "Did not get data from API, you probably have no valid session or no repositories.")
             exit(1)
 
-        bar = Bar('Fetching repo data for repositories', max=total_repos) if progress else None
+        bar = Bar('Fetching repo data for repositories',
+                  max=total_repos) if progress else None
 
         for repo in all_repos:
             # Check if the repo is owned by the user or their organization
@@ -94,14 +102,17 @@ class GithubBackend(VcsBackend):
                     http_link=repo.clone_url,
                     default_branch=repo.default_branch
                 )
-            if bar: bar.next()
-        if bar: bar.finish()
+            if bar:
+                bar.next()
+        if bar:
+            bar.finish()
 
         return repos
 
     def enrichRepo(self, repo: Repo, verbose: bool = False) -> Repo:
         if self.client is None:
-            raise Exception("GitHub connection is not set up. Call setup() first.")
+            raise Exception(
+                "GitHub connection is not set up. Call setup() first.")
 
         latest_commit_date = None
         contact_name = None
@@ -134,7 +145,8 @@ class GithubBackend(VcsBackend):
 
                 except github.GithubException:
                     if verbose:
-                        print(f"Error fetching commit for branch {branch.name}")
+                        print(
+                            f"Error fetching commit for branch {branch.name}")
 
         except github.GithubException as e:
             if verbose:

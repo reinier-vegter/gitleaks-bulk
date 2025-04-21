@@ -6,6 +6,7 @@ from typing import Dict, Tuple
 from data_types import Repo, ConnectionInput, VcsBackend
 from progress.bar import Bar
 
+
 class GitlabBackend(VcsBackend):
     client: gitlab.Gitlab | None = None
     endpoint_identifier = ""
@@ -28,20 +29,26 @@ class GitlabBackend(VcsBackend):
         print(f"({self.name()}) Connecting to {self.endpoint_identifier}")
         try:
             # Set up the GitLab connection
-            self.client = gitlab.Gitlab(connection_input["base_url"], private_token=connection_input["token"])
+            self.client = gitlab.Gitlab(
+                connection_input["base_url"],
+                private_token=connection_input["token"])
             # Test the connection
             self.client.auth()
-            print(f"Successfully connected to GitLab at {self.endpoint_identifier}")
+            print(
+                f"Successfully connected to GitLab at {self.endpoint_identifier}")
         except gitlab.exceptions.GitlabAuthenticationError:
-            raise Exception(f"Authentication failed at {connection_input['base_url']}. Please check your token.")
+            raise Exception(
+                f"Authentication failed at {connection_input['base_url']}. Please check your token.")
         except gitlab.exceptions.GitlabError as e:
             raise Exception(f"GitLab API error: {e}")
         return self
 
-    def fetchAllRepos(self, progress: bool = False, verbose: bool = False) -> Dict[int, Repo]:
+    def fetchAllRepos(self, progress: bool = False,
+                      verbose: bool = False) -> Dict[int, Repo]:
         print(f"({self.name()}) Fetching repo data from {self.endpoint_identifier}")
         if self.client is None:
-            raise Exception("GitLab connection is not set up. Call setup() first.")
+            raise Exception(
+                "GitLab connection is not set up. Call setup() first.")
 
         repos: Dict[int, Repo] = {}
         projects = self.client.projects.list(iterator=True, per_page=100)
@@ -49,9 +56,12 @@ class GitlabBackend(VcsBackend):
             print("Did not get data from API, you probably have no valid session.")
             exit(1)
 
-        bar = Bar('Fetching repo data for projects', max=projects.total) if progress else None
+        bar = Bar(
+            'Fetching repo data for projects',
+            max=projects.total) if progress else None
         for project in projects:
-            if project.archived is False and project.empty_repo is False and project.namespace['kind'] != 'user':
+            if project.archived is False and project.empty_repo is False and project.namespace[
+                    'kind'] != 'user':
                 repos[project.id] = Repo(
                     type=self.name(),
                     repo_key=project.id,
@@ -61,8 +71,10 @@ class GitlabBackend(VcsBackend):
                     ssh_link=project.ssh_url_to_repo,
                     http_link=project.http_url_to_repo,
                     default_branch=project.default_branch)
-            if bar: bar.next()
-        if bar: bar.finish()
+            if bar:
+                bar.next()
+        if bar:
+            bar.finish()
 
         return repos
 
@@ -72,13 +84,14 @@ class GitlabBackend(VcsBackend):
         contact_mail = None
         latest_branch = None
 
-        branches = self.client.http_get(f'/projects/{repo["repo_key"]}/repository/branches')
+        branches = self.client.http_get(
+            f'/projects/{repo["repo_key"]}/repository/branches')
         for branch in branches:
             try:
                 # Get the last commit of the branch
                 commit = branch['commit']
                 commit_date = datetime.fromisoformat(commit['committed_date'])
-                
+
                 # Compare dates
                 if latest_commit_date is None or commit_date > latest_commit_date:
                     latest_commit_date = commit_date
