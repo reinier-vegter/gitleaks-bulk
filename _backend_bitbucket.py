@@ -60,7 +60,7 @@ class BitbucketBackend(VcsBackend):
             max=len(projects)) if progress else None
 
         for project in projects:
-            if (project["type"] == "NORMAL"):
+            if project["type"] == "NORMAL":
                 project_key = project.get("key")
                 if verbose:
                     print(f"Fetching repo data for project [{project_key}]")
