@@ -19,8 +19,6 @@ stopwords = [
     "sealed",
     ".crt",
     "placeholder",
-    "secret",
-    "password",
     "dev",
     "local"
 ]
@@ -67,7 +65,7 @@ keywords = [
     "token",
     "secret",
 ]
-path = '''(?i)(^|/)Dockerfile[a-zA-Z0-9._-]*$'''
+path = '''(?i)(^|/)[a-zA-Z0-9._-]*Dockerfile[a-zA-Z0-9._-]*$'''
 
   [[rules.allowlists]]
   stopwords = [
