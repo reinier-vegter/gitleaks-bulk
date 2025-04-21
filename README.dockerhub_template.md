@@ -1,6 +1,6 @@
 # gitleaks-bulk Docker Image
 
-[![Build and Release](https://github.com/reinier-vegter/gitleaks-bulk/actions/workflows/build_release.yml/badge.svg?event=workflow_dispatch)](https://github.com/reinier-vegter/gitleaks-bulk/actions/workflows/build_release.yml)
+[![Build and Release](https://github.com/reinier-vegter/gitleaks-bulk/actions/workflows/build_release.yml/badge.svg)](https://github.com/reinier-vegter/gitleaks-bulk/actions/workflows/build_release.yml) 
 [![Docker Pulls](https://img.shields.io/docker/pulls/rvegter/gitleaks-bulk.svg)](https://hub.docker.com/r/rvegter/gitleaks-bulk)
 [![GitHub Repo](https://img.shields.io/badge/github-repo-blue.svg)](https://github.com/rvegter/gitleaks-bulk)
 
