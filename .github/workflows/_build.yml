@@ -1,0 +1,148 @@
+name: Build jobs
+
+on:
+  workflow_call
+
+jobs:
+  deps:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: 3.12
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+  lint:
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    needs: deps
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v5
+      with:
+        python-version: 3.12
+        cache: 'pip'
+
+    - name: Install dependencies
+      run: pip install -r requirements.txt
+
+    - name: Analysing the code with pylint
+      run: |
+        pip install pylint
+        pylint *.py
+
+  tests:
+    runs-on: ubuntu-latest
+    needs: deps
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v5
+      with:
+        python-version: 3.12
+        cache: 'pip'
+
+    - name: Install dependencies
+      run: pip install -r requirements.txt
+
+    - name: Run tests
+      run: |
+        pip install pytest pytest-cov genbadge[all]
+        pytest -v --cov=. --cov-report=xml:coverage.xml --junitxml=tests.xml
+        genbadge tests -i tests.xml
+        genbadge coverage -i coverage.xml
+
+  build-ubuntu:
+    needs: tests
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: 3.12
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Build with Nuitka
+        uses: Nuitka/Nuitka-Action@v1.1
+        with:
+          nuitka-version: main
+          script-name: main.py
+          onefile: true
+          standalone: true
+          output-file: gitleaks-bulk
+          output-dir: dist/ubuntu
+          assume-yes-for-downloads: yes
+          include-data-files: template*.toml=./
+
+      - name: Upload Ubuntu Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gitleaks-bulk-ubuntu
+          path: dist/ubuntu/gitleaks-bulk
+
+  test-nuitka-binary-ubuntu:
+    needs: [build-ubuntu] # Depends on the binary being built
+    runs-on: ${{ matrix.ubuntu-version }} # Use the matrix variable
+    strategy:
+      fail-fast: false # Allow all matrix jobs to finish even if one fails
+      matrix:
+        ubuntu-version: [ubuntu-22.04, ubuntu-24.04]
+    steps:
+      - name: Download Nuitka binary artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: gitleaks-bulk-ubuntu # Match the upload name from build-ubuntu
+          path: . # Download to the current directory
+
+      - name: Make binary executable
+        run: chmod +x gitleaks-bulk
+
+      - name: Test binary execution (--help) on ${{ matrix.ubuntu-version }}
+        run: |
+          echo "Running ./gitleaks-bulk --help on ${{ matrix.ubuntu-version }}"
+          ./gitleaks-bulk --help
+          echo "Binary executed successfully (exit code 0)."
+
+  build-docker:
+    needs: [ deps, tests ]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # IMPORTANT for tag/branch history
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image temp
+        id: build_image_temp
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          target: final
+          load: true
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          tags: temp:${{github.sha}}
+
+      - name: Run gitleaks rule tests inside the built image
+        continue-on-error: true
+        run: |
+          echo "Attempting to run tests in image"
+          cp template_gitleaks.toml gitleaks.toml
+          cp template_gitleaks-custom.toml gitleaks-custom.toml
+          docker run --rm -v "${PWD}":/app -w /app --entrypoint= "temp:${{github.sha}}" /bin/bash tests/test_gitleaks_rules.sh || exit 1
+          # The script exits with non-zero on failure, which will fail this step.
