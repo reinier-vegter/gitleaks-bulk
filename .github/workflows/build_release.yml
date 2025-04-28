@@ -26,8 +26,8 @@ jobs:
 
   test-build:
     uses: ./.github/workflows/_build.yml
-    with:
-    secrets:
+#    with:
+#    secrets:
 
   release-binaries:
     needs: [test-build, set_versions]
