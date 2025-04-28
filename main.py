@@ -136,7 +136,7 @@ def getData():
                 print("Updating existing data")
             new_data = backend.fetchAllRepos(True, config["verbose"])
             if config["updateinfo"]:
-                updateRepoInfo(data, new_data)
+                data = updateRepoInfo(data, new_data)
             else:
                 data = new_data
 
