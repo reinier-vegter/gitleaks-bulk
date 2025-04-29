@@ -66,6 +66,15 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      - id: gitleaks_version
+        run: |
+          version=$(docker run --rm -v "${PWD}":/app -w /app --entrypoint= "temp:${{github.sha}}" gitleaks version) || exit 1
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "numerical: ${{ needs.set_versions.outputs.numerical }}"
+          echo "major: ${{ needs.set_versions.outputs.major }}"
+          echo "major_minor: ${{ needs.set_versions.outputs.major_minor }}"
+          echo "numerical: ${{ needs.set_versions.outputs.numerical }}"
+
       - name: Extract metadata (tags, labels) for Docker
         id: meta
         uses: docker/metadata-action@v5
