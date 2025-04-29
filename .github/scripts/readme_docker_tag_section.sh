@@ -10,11 +10,12 @@
 # DEFAULT_BRANCH: Name of the default branch (e.g., "main")
 # README_TEMPLATE_PATH: Relative path to the README template (e.g., "README.dockerhub.md")
 # VERSION_TAG_PATTERN: Glob pattern for version tags (e.g., "v*.*.*" or "[0-9]*.*.*")
+# DOCKERHUB_IMAGE_NAME: Docker Hub image name (e.g., "yourusername/yourimage")
 
 # --- Validate Inputs ---
-if [[ -z "$GITHUB_REPOSITORY" || -z "$DOCKERFILE_PATH" || -z "$DEFAULT_BRANCH" || -z "$README_TEMPLATE_PATH" || -z "$VERSION_TAG_PATTERN" || -z "$README_OUTPUT" || -z "$FULL_VERSION" ]]; then
+if [[ -z "$GITHUB_REPOSITORY" || -z "$DOCKERFILE_PATH" || -z "$DEFAULT_BRANCH" || -z "$README_TEMPLATE_PATH" || -z "$VERSION_TAG_PATTERN" || -z "$README_OUTPUT" || -z "$FULL_VERSION" || -z "$DOCKERHUB_IMAGE_NAME" ]]; then
   echo "Error: Missing required environment variables."
-  echo "Need: GITHUB_REPOSITORY, DOCKERFILE_PATH, DEFAULT_BRANCH, README_TEMPLATE_PATH, VERSION_TAG_PATTERN, README_OUTPUT"
+  echo "Need: GITHUB_REPOSITORY, DOCKERFILE_PATH, DEFAULT_BRANCH, README_TEMPLATE_PATH, VERSION_TAG_PATTERN, README_OUTPUT, DOCKERHUB_IMAGE_NAME"
   exit 1
 fi
 
@@ -30,86 +31,71 @@ echo "Default Branch: ${DEFAULT_BRANCH}"
 echo "README Template: ${FULL_README_PATH}"
 echo "Version Tag Pattern: ${VERSION_TAG_PATTERN}"
 echo "Full version: ${FULL_VERSION}"
+echo "DockerHub Image Name: ${DOCKERHUB_IMAGE_NAME}"
 echo "---------------------"
 
 if [[ ! -f "$FULL_README_PATH" ]]; then
-    echo "Error: README template file not found at ${FULL_README_PATH}"
-    exit 1
+  echo "Error: README template file not found at ${FULL_README_PATH}"
+  exit 1
 fi
 
-DEFAULT_BRANCH_SHA=$(git rev-parse "${DEFAULT_BRANCH}" 2>/dev/null)
-echo "latest sha: ${DEFAULT_BRANCH_SHA}"
+# --- Fetch Docker Hub Tags and Digests ---
+echo "Fetching Docker Hub tags for ${DOCKERHUB_IMAGE_NAME}..."
+DOCKER_TAGS=$(docker run --rm --entrypoint /bin/sh alpine:latest -c "apk add --no-cache curl && curl -s https://hub.docker.com/v2/repositories/${DOCKERHUB_IMAGE_NAME}/tags | jq -r '.results[].name'")
+if [[ -z "$DOCKER_TAGS" ]]; then
+    echo "Warning: No tags found on Docker Hub for ${DOCKERHUB_IMAGE_NAME}."
+    DOCKER_TAGS=""
+fi
 
-# --- Process Git Tags matching the pattern ---
-echo "Processing Git tags matching pattern '${VERSION_TAG_PATTERN}'..."
-# Use "git tag --list" which is safer for scripting than just "git tag"
-# Sort tags using version sort initially (helps determine representative tag later)
 
+# --- Process Docker Hub Tags matching the pattern ---
+echo "Processing Docker Hub tags matching pattern '${VERSION_TAG_PATTERN}'..."
 MAJORS=()
 MAJOR_MINORS=()
-PATCH_COUNTS=()
 MARKDOWN_LIST=""
-while IFS= read -r tag; do
-  # Get commit SHA for the tag (handle annotated vs lightweight)
-  tag_sha=$(git rev-parse "${tag}^{commit}" 2>/dev/null || git rev-parse "$tag" 2>/dev/null)
+for tag in $DOCKER_TAGS; do
+  if [[ "$tag" =~ $VERSION_TAG_PATTERN || "$tag" == "latest" ]]; then
+    echo "  Tag found: ${tag}"
+    # The digest can be fetched by running a container with the tag
+    digest=$(docker run --rm --entrypoint /bin/sh "${DOCKERHUB_IMAGE_NAME}:${tag}" -c "echo $(cat /etc/hostname)" 2>&1)
 
-  if [[ -n "$tag_sha" ]]; then
-    echo "  Tag: ${tag} -> SHA: ${tag_sha}"
+    if [[ -n "$digest" && "$digest" != "Unable to find image" ]]; then
+      github_link="${REPO_URL}/blob/${digest}/${FULL_DOCKERFILE_REPO_PATH}"
+      numerical=$(echo "$tag" | grep -o -P '^[0-9]+\.[0-9]+\.[0-9]+')
+      major=$(echo "$numerical" | awk -F'.' '{print $1}')
+      major_minor=$(echo "$numerical" | awk -F'.' '{printf "%s.%s\n", $1, $2}')
 
-    github_link="${REPO_URL}/blob/${tag_sha}/${FULL_DOCKERFILE_REPO_PATH}"
-
-    numerical=$(echo "$tag" | grep -o -P '^[0-9]+\.[0-9]+\.[0-9]+')
-    major=$(echo "$numerical" | awk -F'.' '{print $1}')
-    major_minor=$(echo "$numerical" | awk -F'.' '{printf "%s.%s\n", $1, $2}')
-
-
-    # Build markdown strings
-    version_string="[\`${numerical}\`](${github_link})"
-    if [ "${numerical}" != "${tag}" ]; then
-      version_string="${version_string}, [\`${tag}\`](${github_link})"
-    fi
-
-    if ! printf '%s\n' "${MAJOR_MINORS[@]}" | grep -q -F -x -- "$major_minor"; then
-      MAJOR_MINORS+=($major_minor)
-      version_string="[\`${major_minor}\`](${github_link}), ${version_string}"
-      PATCH_COUNTS+=("$major_minor:0")
-    fi
-    if ! printf '%s\n' "${MAJORS[@]}" | grep -q -F -x -- "$major"; then
-      MAJORS+=($major)
-      version_string="[\`${major}\`](${github_link}), ${version_string}"
-    fi
-    if [ "$tag_sha" = "${DEFAULT_BRANCH_SHA}" ]; then
-      echo "This is the *latest* tag"
-      version_string="${version_string}, [\`latest\`](${github_link})"
-
-      # Also add full version including gitleaks tag.
-      version_string="${version_string}, [\`${FULL_VERSION}\`](${github_link})"
-    fi
-
-    # Check if we've already listed 3 patch versions for this major.minor, otherwise skip.
-    patch_count_index=$(printf '%s\n' "${PATCH_COUNTS[@]}" | grep -n "^${major_minor}:" | cut -d: -f1)
-    if [[ -n "$patch_count_index" ]]; then
-      current_count=$(echo "${PATCH_COUNTS[$((patch_count_index - 1))]}" | cut -d: -f2)
-      if (( current_count < 3 )); then
-        ((current_count++))
-        PATCH_COUNTS[$((patch_count_index - 1))]="${major_minor}:${current_count}"
-      else
-        echo "Skipping tag ${tag} because 3 patch versions for ${major_minor} have already been listed."
-        continue
+      # Build markdown strings
+      version_string="[\`${numerical}\`](${github_link})"
+      if [ "${numerical}" != "${tag}" ]; then
+        version_string="${version_string}, [\`${tag}\`](${github_link})"
       fi
+
+      if ! printf '%s\n' "${MAJOR_MINORS[@]}" | grep -q -F -x -- "$major_minor"; then
+        MAJOR_MINORS+=($major_minor)
+        version_string="[\`${major_minor}\`](${github_link}), ${version_string}"
+      fi
+      if ! printf '%s\n' "${MAJORS[@]}" | grep -q -F -x -- "$major"; then
+        MAJORS+=($major)
+        version_string="[\`${major}\`](${github_link}), ${version_string}"
+      fi
+
+      if [[ "$tag" == "latest" ]]; then
+        echo "This is the *latest* tag"
+        version_string="${version_string}, [\`latest\`](${github_link})"
+        version_string="${version_string}, [\`${FULL_VERSION}\`](${github_link})"
+      fi
+      MARKDOWN_LIST+="*   ${version_string}\n"
+    else
+      echo "  Warning: Could not determine digest for tag ${tag}."
     fi
-
-    MARKDOWN_LIST+="*   ${version_string}\n"
-  else
-    echo "  Warning: Could not determine SHA for tag ${tag}."
   fi
-done < <(git tag --list --sort=-v:refname | grep -E "$VERSION_TAG_PATTERN") # Sort highest version first
-
+done
 
 # --- Inject the list into the README template ---
 if [[ -z "$MARKDOWN_LIST" ]]; then
-    echo "Warning: No tags found or processed. Generated list is empty."
-    MARKDOWN_LIST="*   No tags available.\n"
+  echo "Warning: No tags found or processed. Generated list is empty."
+  MARKDOWN_LIST="*   No tags available.\n"
 fi
 
 echo "Injecting generated list into ${FULL_README_PATH}..."
