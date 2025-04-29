@@ -10,9 +10,11 @@ import argparse
 def main():
     parser = argparse.ArgumentParser(description='Generate Docker tag list for README')
     parser.add_argument('--verbose', action='store_true', help='Enable verbose output')
+    parser.add_argument('--limit', type=int, default=10, help='Maximum number of tag groups to display')
     args = parser.parse_args()
 
     verbose = args.verbose
+    max_tag_groups = args.limit
 
     # Get required environment variables with defaults
     env = {
@@ -28,7 +30,7 @@ def main():
     }
 
     # Check required variables
-    required = ['GITHUB_REPOSITORY', 'FULL_VERSION', 'LATEST_IMAGE_DIGEST', 'DOCKERHUB_USERNAME']
+    required = ['GITHUB_REPOSITORY', 'FULL_VERSION', 'DOCKERHUB_USERNAME']
     missing = [k for k in required if not env[k]]
     if missing:
         print(f"Error: Missing required environment variables: {', '.join(missing)}")
@@ -64,6 +66,7 @@ def main():
     # Create two tag groups: latest and historical
     tag_groups = {
         'latest': {
+            'version': numerical_version,
             'tags': set(latest_tags),
             'link': f"{repo_url}/blob/{numerical_version}/{env['DOCKERFILE_PATH']}"
         }
@@ -73,7 +76,7 @@ def main():
     try:
         # Get tags from Docker Hub API
         api_url = f"https://hub.docker.com/v2/repositories/{dockerhub_repo}/tags?page_size=100"
-        all_tags = []
+        version_data = {}  # Store versions with their tags
 
         while api_url:
             response = requests.get(api_url)
@@ -83,7 +86,7 @@ def main():
 
             data = response.json()
 
-            # Extract tag names and digests
+            # Extract tag names and versions
             for tag_data in data['results']:
                 tag = tag_data['name']
 
@@ -100,30 +103,44 @@ def main():
                     if version == numerical_version:
                         continue
 
-                    # Create or get the group for this version
-                    if version not in tag_groups:
-                        tag_groups[version] = {
-                            'tags': set(),
-                            'link': f"{repo_url}/blob/{version}/{env['DOCKERFILE_PATH']}"
-                        }
-
-                    # Add the tag to its version group
-                    tag_groups[version]['tags'].add(tag)
-
-                    # Extract version components and add them if they don't clash with latest
-                    ver_parts = version.split('.')
-                    major_ver = ver_parts[0]
-                    minor_ver = f"{major_ver}.{ver_parts[1]}"
-
-                    # Don't add major/minor versions that match our latest version
-                    if major_ver != major and f"{major_ver}" not in latest_tags:
-                        tag_groups[version]['tags'].add(major_ver)
-
-                    if minor_ver != f"{major}.{minor}" and minor_ver not in latest_tags:
-                        tag_groups[version]['tags'].add(minor_ver)
+                    # Add tag to its version group
+                    if version not in version_data:
+                        version_data[version] = []
+                    version_data[version].append(tag)
 
             # Check for next page
             api_url = data.get('next')
+
+        # Sort versions by newest first and limit to max_tag_groups-1 (to leave room for latest)
+        sorted_versions = sorted(version_data.keys(),
+                                 key=lambda v: [int(p) for p in v.split('.')],
+                                 reverse=True)
+
+        # Take only the most recent versions (leaving room for latest)
+        historical_versions = sorted_versions[:max_tag_groups - 1]
+
+        # Process each historical version
+        for version in historical_versions:
+            ver_parts = version.split('.')
+            major_ver = ver_parts[0]
+            minor_ver = f"{major_ver}.{ver_parts[1]}"
+
+            # Create version tags set
+            version_tags = set(version_data[version])
+
+            # Add major/minor versions only if they don't clash with latest
+            if major_ver != major and major_ver not in latest_tags:
+                version_tags.add(major_ver)
+
+            if minor_ver != f"{major}.{minor}" and minor_ver not in latest_tags:
+                version_tags.add(minor_ver)
+
+            # Add to tag groups
+            tag_groups[version] = {
+                'version': version,
+                'tags': version_tags,
+                'link': f"{repo_url}/blob/{version}/{env['DOCKERFILE_PATH']}"
+            }
 
     except Exception as e:
         print(f"Warning: Error fetching tags from Docker Hub: {str(e)}")
@@ -132,13 +149,13 @@ def main():
     markdown_list = []
 
     # Sort version groups - latest first, then by version number
-    sorted_versions = sorted(tag_groups.keys(),
-                             key=lambda v: [0 if v == 'latest' else 1,
-                                            [-int(p) for p in v.split('.')] if v != 'latest' else [0]])
+    sorted_groups = sorted(tag_groups.keys(),
+                           key=lambda v: [0 if v == 'latest' else 1,
+                                          [-int(p) for p in v.split('.')] if v != 'latest' else [0]])
 
     # Process each version group
-    for version in sorted_versions:
-        group = tag_groups[version]
+    for version_key in sorted_groups:
+        group = tag_groups[version_key]
 
         # Skip empty groups
         if not group['tags']:
@@ -219,7 +236,7 @@ def main():
         with open(readme_output_path, 'w') as f:
             f.write(updated_content)
 
-        print(f"Successfully updated {readme_output_path}")
+        print(f"Successfully updated {readme_output_path} with {len(markdown_list)} tag groups")
     except Exception as e:
         print(f"Error updating README: {str(e)}")
         sys.exit(1)
