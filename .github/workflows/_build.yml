@@ -127,7 +127,7 @@ jobs:
     needs: [ deps, tests ]
     runs-on: ubuntu-latest
     outputs:
-      image_tag: temp:${{github.sha}}
+      image_tag: "temp:${{github.sha}}"
       gitleaks_version: ${{ steps.gitleaks_version.outputs.version }}
 
     steps:
@@ -153,6 +153,7 @@ jobs:
         run: |
           version=$(docker run --rm -v "${PWD}":/app -w /app --entrypoint= "temp:${{github.sha}}" gitleaks version) || exit 1
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Gitleaks version: $version"
 
       - name: Run gitleaks rule tests inside the built image
         continue-on-error: true
