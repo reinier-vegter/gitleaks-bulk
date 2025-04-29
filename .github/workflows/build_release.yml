@@ -29,26 +29,24 @@ jobs:
 #    with:
 #    secrets:
 
-#  release-binaries:
-#    needs: [test-build, set_versions]
-#    runs-on: ubuntu-latest
-#    steps:
-#      - uses: actions/download-artifact@v4
-#        with:
-#          name: gitleaks-bulk-ubuntu
-#          path: ./artifacts
-#      - name: Create GitHub Release
-#        uses: softprops/action-gh-release@v1
-#        with:
-#          tag_name: ${{ needs.set_versions.outputs.numerical }}
-#          files: ./artifacts/gitleaks-bulk
-#          fail_on_unmatched_files: true
+  release-binaries:
+    needs: [test-build, set_versions]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: gitleaks-bulk-ubuntu
+          path: ./artifacts
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ needs.set_versions.outputs.numerical }}
+          files: ./artifacts/gitleaks-bulk
+          fail_on_unmatched_files: true
 
   build-release-docker:
     needs: [ test-build, set_versions ]
     runs-on: ubuntu-latest
-#    outputs:
-#      gitleaks_version: ${{ steps.test-build.outputs.gitleaks_version }}
 
     steps:
       - name: Fail if gitleaks version is empty
@@ -118,8 +116,8 @@ jobs:
 
       - id: get_dockerhub_tags
         run: |
-          DOCKER_TAGS=$(curl -s https://hub.docker.com/v2/repositories/${{ secrets.DOCKERHUB_USERNAME }}/gitleaks-bulk/tags | jq -r '.results[].name' | tr '\n' ' ')
-          echo "DOCKER_TAGS=${DOCKER_TAGS}" >> $GITHUB_ENV # Or GITHUB_OUTPUT if supported by your runner
+          DOCKER_TAGS=$(curl -s "https://hub.docker.com/v2/repositories/${{ secrets.DOCKERHUB_USERNAME }}/gitleaks-bulk/tags" | jq -r '.results[] | "\(.name):\(.digest)"' | tr '\n' ' ')
+          echo "DOCKER_TAGS=${DOCKER_TAGS}" >> $GITHUB_ENV
 
       - name: Generate Supported Tags List for README
         id: generate_readme

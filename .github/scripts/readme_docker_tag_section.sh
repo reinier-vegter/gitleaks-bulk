@@ -1,19 +1,12 @@
 #!/bin/bash
 
 # --- Configuration (Read from Environment Variables) ---
-# Provided by GitHub Actions automatically:
-# GITHUB_REPOSITORY: owner/repo
-# GITHUB_SERVER_URL: e.g. https://github.com (needed for GHE)
-# GITHUB_WORKSPACE: Path where the repo is checked out
-# User-defined Environment Variables in Workflow:
-# DOCKERFILE_PATH: Relative path to the Dockerfile (e.g., "Dockerfile" or "build/Dockerfile")
-# DEFAULT_BRANCH: Name of the default branch (e.g., "main")
-# README_TEMPLATE_PATH: Relative path to the README template (e.g., "README.dockerhub.md")
-# VERSION_TAG_PATTERN: Glob pattern for version tags (e.g., "v*.*.*" or "[0-9]*.*.*")
-# DOCKER_TAGS: The output from the previous build step
+[[ "$1" == "--verbose" ]] && VERBOSE=true || VERBOSE=
 
 # --- Validate Inputs ---
-if [[ -z "$GITHUB_REPOSITORY" || -z "$DOCKERFILE_PATH" || -z "$DEFAULT_BRANCH" || -z "$README_TEMPLATE_PATH" || -z "$VERSION_TAG_PATTERN" || -z "$README_OUTPUT" || -z "$FULL_VERSION" || -z "$DOCKER_TAGS" ]]; then
+if [[ -z "$GITHUB_REPOSITORY" || -z "$DOCKERFILE_PATH" || -z "$DEFAULT_BRANCH" ||
+      -z "$README_TEMPLATE_PATH" || -z "$VERSION_TAG_PATTERN" || -z "$README_OUTPUT" ||
+      -z "$FULL_VERSION" || -z "$DOCKER_TAGS" ]]; then
   echo "Error: Missing required environment variables."
   echo "Need: GITHUB_REPOSITORY, DOCKERFILE_PATH, DEFAULT_BRANCH, README_TEMPLATE_PATH, VERSION_TAG_PATTERN, README_OUTPUT, DOCKER_TAGS"
   exit 1
@@ -39,57 +32,158 @@ if [[ ! -f "$FULL_README_PATH" ]]; then
   exit 1
 fi
 
-# --- Process Docker Hub Tags matching the pattern ---
-echo "Processing Docker Hub tags matching pattern '${VERSION_TAG_PATTERN}'..."
-MAJORS=()
-MAJOR_MINORS=()
+# --- Process tags and create a proper hierarchy ---
+echo "Processing Docker tags..."
+
+# Store digest-tag mapping
+declare -A DIGEST_TAGS
+declare -A DIGEST_SEMVER
+
+# First pass: organize tags by digest
+for tag_digest in $DOCKER_TAGS; do
+  # Split tag:digest format
+  tag=$(echo "$tag_digest" | cut -d':' -f1)
+  digest=$(echo "$tag_digest" | cut -d':' -f2-)
+
+  # Skip empty or invalid tags
+  if [[ -z "$tag" || "$tag" == "." || "$tag" == "" ]]; then
+    continue
+  fi
+
+  # Store this tag with its digest
+  if [[ -n "$digest" ]]; then
+    # Add to the digest's list of tags
+    DIGEST_TAGS["$digest"]="${DIGEST_TAGS["$digest"]} $tag"
+
+    # If it's a semantic version, store it
+    if [[ "$tag" =~ $VERSION_TAG_PATTERN ]]; then
+      numerical=$(echo "$tag" | grep -o -P '^[0-9]+\.[0-9]+\.[0-9]+' || echo "")
+      if [[ -n "$numerical" ]]; then
+        DIGEST_SEMVER["$digest"]="$numerical"
+      fi
+    fi
+  fi
+done
+
+# --- Generate Markdown list ---
 MARKDOWN_LIST=""
 
-# Loop through the space-separated tags
-for tag in $DOCKER_TAGS; do
-  if [[ "$tag" =~ $VERSION_TAG_PATTERN || "$tag" == "latest" ]]; then
-    echo "  Tag found: ${tag}"
-    # The digest can be fetched by running a container with the tag
-    digest=$(docker run --rm --entrypoint /bin/sh "${DOCKERHUB_IMAGE_NAME}:${tag}" -c "echo $(cat /etc/hostname)" 2>&1)
+# Sort digests by their semver (newest first) using a temp file
+temp_file=$(mktemp)
+for digest in "${!DIGEST_SEMVER[@]}"; do
+  echo "${DIGEST_SEMVER[$digest]} $digest" >> "$temp_file"
+done
 
-    if [[ -n "$digest" && "$digest" != "Unable to find image" ]]; then
-      github_link="${REPO_URL}/blob/${digest}/${FULL_DOCKERFILE_REPO_PATH}"
-      numerical=$(echo "$tag" | grep -o -P '^[0-9]+\.[0-9]+\.[0-9]+')
-      major=$(echo "$numerical" | awk -F'.' '{print $1}')
-      major_minor=$(echo "$numerical" | awk -F'.' '{printf "%s.%s\n", $1, $2}')
+# Sort by semver in descending order
+sorted_digests=$(sort -rV "$temp_file" | awk '{print $2}')
+rm "$temp_file"
 
-      # Build markdown strings
-      version_string="[\`${numerical}\`](${github_link})"
-      if [ "${numerical}" != "${tag}" ]; then
-        version_string="${version_string}, [\`${tag}\`](${github_link})"
-      fi
+# Process each digest and create the markdown
+for digest in $sorted_digests; do
+  [ $VERBOSE ] && echo "Processing digest: $digest"
+  tag_list=${DIGEST_TAGS["$digest"]}
 
-      if ! printf '%s\n' "${MAJOR_MINORS[@]}" | grep -q -F -x -- "$major_minor"; then
-        MAJOR_MINORS+=($major_minor)
-        version_string="[\`${major_minor}\`](${github_link}), ${version_string}"
-      fi
-      if ! printf '%s\n' "${MAJORS[@]}" | grep -q -F -x -- "$major"; then
-        MAJORS+=($major)
-        version_string="[\`${major}\`](${github_link}), ${version_string}"
-      fi
+  # Skip if no tags found
+  if [[ -z "$tag_list" ]]; then
+    continue
+  fi
 
-      if [[ "$tag" == "latest" ]]; then
-        echo "This is the *latest* tag"
-        version_string="${version_string}, [\`latest\`](${github_link})"
-        version_string="${version_string}, [\`${FULL_VERSION}\`](${github_link})"
+  # Extract the numerical version for GitHub link
+  numerical_version=""
+  for tag in $tag_list; do
+    if [[ "$tag" =~ $VERSION_TAG_PATTERN ]]; then
+      numerical=$(echo "$tag" | grep -o -P '^[0-9]+\.[0-9]+\.[0-9]+' || echo "")
+      if [[ -n "$numerical" ]]; then
+        numerical_version="$numerical"
+        break
       fi
-      MARKDOWN_LIST+="*   ${version_string}\n"
-    else
-      echo "  Warning: Could not determine digest for tag ${tag}."
     fi
+  done
+
+  # Use the correct tag for the GitHub link (default branch if no numerical version found)
+  tag_for_link="${numerical_version:-$DEFAULT_BRANCH}"
+  github_link="${REPO_URL}/blob/${tag_for_link}/${FULL_DOCKERFILE_REPO_PATH}"
+
+  # Create arrays for the different tag types
+  has_latest=false
+  declare -a majors=()
+  declare -a major_minors=()
+  declare -a patches=()
+  declare -a full_versions=()
+
+  # Categorize tags
+  for tag in $tag_list; do
+    # Skip empty tags
+    if [[ -z "$tag" || "$tag" == "." || "$tag" == "" ]]; then
+      continue
+    fi
+
+    if [[ "$tag" == "latest" ]]; then
+      has_latest=true
+    elif [[ "$tag" =~ ^[0-9]+$ ]]; then
+      majors+=("$tag")
+    elif [[ "$tag" =~ ^[0-9]+\.[0-9]+$ ]]; then
+      major_minors+=("$tag")
+    elif [[ "$tag" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+      patches+=("$tag")
+    elif [[ "$tag" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+      full_versions+=("$tag")
+    fi
+  done
+
+  # Build the formatted tag list in the correct order
+  markdown_tags=""
+
+  # 1. Latest first
+  if [[ "$has_latest" == true ]]; then
+    markdown_tags="[\`latest\`](${github_link})"
+  fi
+
+  # 2. Major versions (e.g., 1)
+  for tag in $(printf '%s\n' "${majors[@]}" | sort -V); do
+    if [[ -n "$markdown_tags" ]]; then
+      markdown_tags="${markdown_tags}, "
+    fi
+    markdown_tags="${markdown_tags}[\`${tag}\`](${github_link})"
+  done
+
+  # 3. Major.minor versions (e.g., 1.0)
+  for tag in $(printf '%s\n' "${major_minors[@]}" | sort -V); do
+    if [[ -n "$markdown_tags" ]]; then
+      markdown_tags="${markdown_tags}, "
+    fi
+    markdown_tags="${markdown_tags}[\`${tag}\`](${github_link})"
+  done
+
+  # 4. Major.minor.patch versions (e.g., 1.0.20)
+  for tag in $(printf '%s\n' "${patches[@]}" | sort -V); do
+    if [[ -n "$markdown_tags" ]]; then
+      markdown_tags="${markdown_tags}, "
+    fi
+    markdown_tags="${markdown_tags}[\`${tag}\`](${github_link})"
+  done
+
+  # 5. Full versions with suffixes (e.g., 1.0.20-v8.24.3)
+  for tag in $(printf '%s\n' "${full_versions[@]}" | sort -V); do
+    if [[ -n "$markdown_tags" ]]; then
+      markdown_tags="${markdown_tags}, "
+    fi
+    markdown_tags="${markdown_tags}[\`${tag}\`](${github_link})"
+  done
+
+  # Add to markdown list
+  if [[ -n "$markdown_tags" ]]; then
+    MARKDOWN_LIST+="* ${markdown_tags}\n"
   fi
 done
 
 # --- Inject the list into the README template ---
 if [[ -z "$MARKDOWN_LIST" ]]; then
   echo "Warning: No tags found or processed. Generated list is empty."
-  MARKDOWN_LIST="*   No tags available.\n"
+  MARKDOWN_LIST="* No tags available.\n"
 fi
+
+[ $VERBOSE ] && echo -e "Output: \n===\n${MARKDOWN_LIST}\n==="
 
 echo "Injecting generated list into ${FULL_README_PATH}..."
 

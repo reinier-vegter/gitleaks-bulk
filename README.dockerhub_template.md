@@ -20,7 +20,11 @@ This is the official Docker image for `gitleaks-bulk`, a CLI tool to fetch repos
 
 ## Tags
 <!-- TAGS_START -->
-auto generated...
+* [`latest`](https://github.com/reinier-vegter/gitleaks-bulk/blob/1.0.21/Dockerfile), [`1`](https://github.com/reinier-vegter/gitleaks-bulk/blob/1.0.21/Dockerfile), [`1.0`](https://github.com/reinier-vegter/gitleaks-bulk/blob/1.0.21/Dockerfile), [`1.0.21`](https://github.com/reinier-vegter/gitleaks-bulk/blob/1.0.21/Dockerfile), [`1.0.21-v8.24.3`](https://github.com/reinier-vegter/gitleaks-bulk/blob/1.0.21/Dockerfile)
+* [`1.0.20`](https://github.com/reinier-vegter/gitleaks-bulk/blob/1.0.20/Dockerfile), [`1.0.20-v8.24.3`](https://github.com/reinier-vegter/gitleaks-bulk/blob/1.0.20/Dockerfile)
+* [`1.0.19`](https://github.com/reinier-vegter/gitleaks-bulk/blob/1.0.19/Dockerfile), [`1.0.19-v8.24.3`](https://github.com/reinier-vegter/gitleaks-bulk/blob/1.0.19/Dockerfile)
+* [`1.0.17-v8.24.3`](https://github.com/reinier-vegter/gitleaks-bulk/blob/1.0.17/Dockerfile)
+
 <!-- TAGS_END -->
 
 ## Prerequisites
