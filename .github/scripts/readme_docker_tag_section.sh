@@ -10,12 +10,12 @@
 # DEFAULT_BRANCH: Name of the default branch (e.g., "main")
 # README_TEMPLATE_PATH: Relative path to the README template (e.g., "README.dockerhub.md")
 # VERSION_TAG_PATTERN: Glob pattern for version tags (e.g., "v*.*.*" or "[0-9]*.*.*")
-# DOCKERHUB_IMAGE_NAME: Docker Hub image name (e.g., "yourusername/yourimage")
+# DOCKER_TAGS: The output from the previous build step
 
 # --- Validate Inputs ---
-if [[ -z "$GITHUB_REPOSITORY" || -z "$DOCKERFILE_PATH" || -z "$DEFAULT_BRANCH" || -z "$README_TEMPLATE_PATH" || -z "$VERSION_TAG_PATTERN" || -z "$README_OUTPUT" || -z "$FULL_VERSION" || -z "$DOCKERHUB_IMAGE_NAME" ]]; then
+if [[ -z "$GITHUB_REPOSITORY" || -z "$DOCKERFILE_PATH" || -z "$DEFAULT_BRANCH" || -z "$README_TEMPLATE_PATH" || -z "$VERSION_TAG_PATTERN" || -z "$README_OUTPUT" || -z "$FULL_VERSION" || -z "$DOCKER_TAGS" ]]; then
   echo "Error: Missing required environment variables."
-  echo "Need: GITHUB_REPOSITORY, DOCKERFILE_PATH, DEFAULT_BRANCH, README_TEMPLATE_PATH, VERSION_TAG_PATTERN, README_OUTPUT, DOCKERHUB_IMAGE_NAME"
+  echo "Need: GITHUB_REPOSITORY, DOCKERFILE_PATH, DEFAULT_BRANCH, README_TEMPLATE_PATH, VERSION_TAG_PATTERN, README_OUTPUT, DOCKER_TAGS"
   exit 1
 fi
 
@@ -31,7 +31,7 @@ echo "Default Branch: ${DEFAULT_BRANCH}"
 echo "README Template: ${FULL_README_PATH}"
 echo "Version Tag Pattern: ${VERSION_TAG_PATTERN}"
 echo "Full version: ${FULL_VERSION}"
-echo "DockerHub Image Name: ${DOCKERHUB_IMAGE_NAME}"
+echo "Docker Tags (truncated): ${DOCKER_TAGS:0:50}..." # Show a truncated view
 echo "---------------------"
 
 if [[ ! -f "$FULL_README_PATH" ]]; then
@@ -39,20 +39,13 @@ if [[ ! -f "$FULL_README_PATH" ]]; then
   exit 1
 fi
 
-# --- Fetch Docker Hub Tags and Digests ---
-echo "Fetching Docker Hub tags for ${DOCKERHUB_IMAGE_NAME}..."
-DOCKER_TAGS=$(docker run --rm --entrypoint /bin/sh alpine:latest -c "apk add --no-cache curl && curl -s https://hub.docker.com/v2/repositories/${DOCKERHUB_IMAGE_NAME}/tags | jq -r '.results[].name'")
-if [[ -z "$DOCKER_TAGS" ]]; then
-    echo "Warning: No tags found on Docker Hub for ${DOCKERHUB_IMAGE_NAME}."
-    DOCKER_TAGS=""
-fi
-
-
 # --- Process Docker Hub Tags matching the pattern ---
 echo "Processing Docker Hub tags matching pattern '${VERSION_TAG_PATTERN}'..."
 MAJORS=()
 MAJOR_MINORS=()
 MARKDOWN_LIST=""
+
+# Loop through the space-separated tags
 for tag in $DOCKER_TAGS; do
   if [[ "$tag" =~ $VERSION_TAG_PATTERN || "$tag" == "latest" ]]; then
     echo "  Tag found: ${tag}"

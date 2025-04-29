@@ -116,6 +116,11 @@ jobs:
           echo "Pushing image with tags: ${{ steps.meta.outputs.tags }}"
           docker push --all-tags rvegter/gitleaks-bulk
 
+      - id: get_dockerhub_tags
+        run: |
+          DOCKER_TAGS=$(curl -s https://hub.docker.com/v2/repositories/${{ secrets.DOCKERHUB_USERNAME }}/gitleaks-bulk/tags | jq -r '.results[].name')
+          echo "DOCKER_TAGS=${DOCKER_TAGS}" >> $GITHUB_ENV # Or GITHUB_OUTPUT if supported by your runner
+
       - name: Generate Supported Tags List for README
         id: generate_readme
         env:
@@ -125,7 +130,7 @@ jobs:
           README_OUTPUT: "README.dockerhub.md"
           VERSION_TAG_PATTERN: "^[0-9]+\\.[0-9]+\\.[0-9]+.*"
           FULL_VERSION: "${{needs.set_versions.outputs.full}}-${{ needs.test-build.outputs.gitleaks_version }}"
-          DOCKERHUB_IMAGE_NAME: "${{ secrets.DOCKERHUB_USERNAME }}/gitleaks-bulk"
+          DOCKER_TAGS: ${{ env.DOCKER_TAGS }}
         run: |
           bash .github/scripts/readme_docker_tag_section.sh
 
