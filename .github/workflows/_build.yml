@@ -1,7 +1,14 @@
 name: Build jobs
 
 on:
-  workflow_call
+  workflow_call:
+    outputs:
+      image_tag:
+        description: "Test image tag"
+        value: ${{ jobs.build-docker.outputs.image_tag }}
+      gitleaks_version:
+        description: "Gitleaks version in docker image"
+        value: ${{ jobs.build-docker.outputs.image_tag }}
 
 jobs:
   deps:
@@ -113,9 +120,15 @@ jobs:
           ./gitleaks-bulk --help
           echo "Binary executed successfully (exit code 0)."
 
+
+  # Builds docker image that can be used for tests.
+  # Image will be tagged "temp:${{github.sha}}"
   build-docker:
     needs: [ deps, tests ]
     runs-on: ubuntu-latest
+    outputs:
+      image_tag: temp:${{github.sha}}
+      gitleaks_version: ${{ steps.gitleaks_version.outputs.version }}
 
     steps:
       - name: Checkout code
@@ -135,6 +148,11 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           tags: temp:${{github.sha}}
+
+      - id: gitleaks_version
+        run: |
+          version=$(docker run --rm -v "${PWD}":/app -w /app --entrypoint= "temp:${{github.sha}}" gitleaks version) || exit 1
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Run gitleaks rule tests inside the built image
         continue-on-error: true
