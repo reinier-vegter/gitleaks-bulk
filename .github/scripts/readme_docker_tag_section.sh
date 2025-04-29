@@ -8,7 +8,7 @@ if [[ -z "$GITHUB_REPOSITORY" || -z "$DOCKERFILE_PATH" || -z "$DEFAULT_BRANCH" |
       -z "$README_TEMPLATE_PATH" || -z "$VERSION_TAG_PATTERN" || -z "$README_OUTPUT" ||
       -z "$FULL_VERSION" || -z "$DOCKER_TAGS" || -z "$LATEST_IMAGE_DIGEST" ]]; then
   echo "Error: Missing required environment variables."
-  echo "Need: GITHUB_REPOSITORY, DOCKERFILE_PATH, DEFAULT_BRANCH, README_TEMPLATE_PATH, VERSION_TAG_PATTERN, README_OUTPUT, DOCKER_TAGS, LATEST_IMAGE_DIGEST"
+  echo "Need: GITHUB_REPOSITORY, DOCKERFILE_PATH, DEFAULT_BRANCH, README_TEMPLATE_PATH, VERSION_TAG_PATTERN, README_OUTPUT, DOCKER_TAGS, LATEST_IMAGE_DIGEST, FULL_VERSION"
   exit 1
 fi
 
@@ -33,6 +33,19 @@ if [[ ! -f "$FULL_README_PATH" ]]; then
   exit 1
 fi
 
+# --- Parse FULL_VERSION to extract components ---
+# Extract numerical part (x.y.z) from FULL_VERSION (x.y.z-vA.B.C)
+NUMERICAL_VERSION=$(echo "$FULL_VERSION" | grep -oP '^[0-9]+\.[0-9]+\.[0-9]+' || echo "")
+if [[ -z "$NUMERICAL_VERSION" ]]; then
+  echo "Warning: Could not extract numerical version from FULL_VERSION: $FULL_VERSION"
+else
+  echo "Numerical version: $NUMERICAL_VERSION"
+  # Extract components
+  MAJOR_VERSION=$(echo "$NUMERICAL_VERSION" | cut -d. -f1)
+  MAJOR_MINOR_VERSION="${MAJOR_VERSION}.$(echo "$NUMERICAL_VERSION" | cut -d. -f2)"
+  echo "Extracted versions: Major: $MAJOR_VERSION, Major.Minor: $MAJOR_MINOR_VERSION, Full: $NUMERICAL_VERSION"
+fi
+
 # --- Process tags and create a proper hierarchy ---
 echo "Processing Docker tags..."
 
@@ -51,6 +64,12 @@ for tag_digest in $DOCKER_TAGS; do
     continue
   fi
 
+  # IMPORTANT: Skip the "latest" tag from API
+  if [[ "$tag" == "latest" ]]; then
+    echo "Discarding 'latest' tag from API data"
+    continue
+  fi
+
   # Store this tag with its digest
   if [[ -n "$digest" ]]; then
     # Add to the digest's list of tags
@@ -66,7 +85,7 @@ for tag_digest in $DOCKER_TAGS; do
   fi
 done
 
-# --- Find the digest that should be associated with "latest" ---
+# --- Find the digest that matches the latest image ---
 latest_digest=""
 # Extract a shorter version of the digest for comparison
 shortened_latest_digest=$(echo "$LATEST_IMAGE_DIGEST" | cut -d':' -f2 | cut -c1-12)
@@ -81,19 +100,62 @@ for digest in "${!DIGEST_TAGS[@]}"; do
   fi
 done
 
-# If we found the latest digest, ensure it includes the "latest" tag
+# If we couldn't find a match by digest, try to find by version number
+if [[ -z "$latest_digest" && -n "$NUMERICAL_VERSION" ]]; then
+  echo "Trying to find digest by version: $NUMERICAL_VERSION"
+  for digest in "${!DIGEST_SEMVER[@]}"; do
+    if [[ "${DIGEST_SEMVER[$digest]}" == "$NUMERICAL_VERSION" ]]; then
+      latest_digest="$digest"
+      echo "Found digest by version match: $latest_digest"
+      break
+    fi
+  done
+fi
+
+# If we found the latest digest, add all version tags
 if [[ -n "$latest_digest" ]]; then
-  # Add "latest" to the tags for this digest if not already there
-  if [[ ! "${DIGEST_TAGS[$latest_digest]}" == *"latest"* ]]; then
-    echo "Adding 'latest' tag to digest: $latest_digest"
-    DIGEST_TAGS["$latest_digest"]="${DIGEST_TAGS[$latest_digest]} latest"
+  # Add "latest" tag from our build
+  echo "Adding 'latest' tag to digest $latest_digest based on build output"
+  DIGEST_TAGS["$latest_digest"]="latest ${DIGEST_TAGS[$latest_digest]}"
+
+  # Ensure all version components are included
+  if [[ -n "$NUMERICAL_VERSION" ]]; then
+    # Check if major version exists
+    if [[ ! "${DIGEST_TAGS[$latest_digest]}" =~ (^|[[:space:]])"$MAJOR_VERSION"([[:space:]]|$) ]]; then
+      echo "Adding major version $MAJOR_VERSION to latest digest"
+      DIGEST_TAGS["$latest_digest"]="${DIGEST_TAGS[$latest_digest]} $MAJOR_VERSION"
+    fi
+
+    # Check if major.minor version exists
+    if [[ ! "${DIGEST_TAGS[$latest_digest]}" =~ (^|[[:space:]])"$MAJOR_MINOR_VERSION"([[:space:]]|$) ]]; then
+      echo "Adding major.minor version $MAJOR_MINOR_VERSION to latest digest"
+      DIGEST_TAGS["$latest_digest"]="${DIGEST_TAGS[$latest_digest]} $MAJOR_MINOR_VERSION"
+    fi
+
+    # Check if numerical version exists
+    if [[ ! "${DIGEST_TAGS[$latest_digest]}" =~ (^|[[:space:]])"$NUMERICAL_VERSION"([[:space:]]|$) ]]; then
+      echo "Adding numerical version $NUMERICAL_VERSION to latest digest"
+      DIGEST_TAGS["$latest_digest"]="${DIGEST_TAGS[$latest_digest]} $NUMERICAL_VERSION"
+    fi
+
+    # Check if full version exists
+    if [[ ! "${DIGEST_TAGS[$latest_digest]}" =~ (^|[[:space:]])"$FULL_VERSION"([[:space:]]|$) ]]; then
+      echo "Adding full version $FULL_VERSION to latest digest"
+      DIGEST_TAGS["$latest_digest"]="${DIGEST_TAGS[$latest_digest]} $FULL_VERSION"
+    fi
   fi
 
-  # For any other digest, remove "latest" if it exists
+  echo "Updated tags for latest digest: ${DIGEST_TAGS[$latest_digest]}"
+
+  # Remove 'latest' from any other digests
   for digest in "${!DIGEST_TAGS[@]}"; do
-    if [[ "$digest" != "$latest_digest" && "${DIGEST_TAGS[$digest]}" == *"latest"* ]]; then
-      echo "Removing 'latest' tag from digest: $digest"
-      DIGEST_TAGS["$digest"]=$(echo "${DIGEST_TAGS[$digest]}" | sed 's/latest//g' | sed 's/  / /g' | sed 's/^ //g' | sed 's/ $//g')
+    if [[ "$digest" != "$latest_digest" ]]; then
+      old_tags="${DIGEST_TAGS[$digest]}"
+      new_tags=$(echo "$old_tags" | sed 's/\blatest\b//g' | sed 's/  / /g' | sed 's/^ //g' | sed 's/ $//g')
+      if [[ "$old_tags" != "$new_tags" ]]; then
+        echo "Removed 'latest' tag from digest $digest"
+        DIGEST_TAGS["$digest"]="$new_tags"
+      fi
     fi
   done
 fi

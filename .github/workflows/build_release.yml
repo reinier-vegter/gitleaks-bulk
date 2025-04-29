@@ -138,6 +138,8 @@ jobs:
           README_OUTPUT: "README.dockerhub.md"
           VERSION_TAG_PATTERN: "^[0-9]+\\.[0-9]+\\.[0-9]+.*"
           LATEST_VERSION: "${{needs.set_versions.outputs.numerical}}"
+          FULL_VERSION: "${{needs.set_versions.outputs.full}}-${{ needs.test-build.outputs.gitleaks_version }}"
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
           LATEST_IMAGE_DIGEST: "${{ steps.image_digest.outputs.digest }}"
           DOCKER_TAGS: ${{ env.DOCKER_TAGS }}
         run: |
