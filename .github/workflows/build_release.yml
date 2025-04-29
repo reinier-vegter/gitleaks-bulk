@@ -137,11 +137,11 @@ jobs:
           README_TEMPLATE_PATH: "README.dockerhub_template.md"
           README_OUTPUT: "README.dockerhub.md"
           VERSION_TAG_PATTERN: "^[0-9]+\\.[0-9]+\\.[0-9]+.*"
-          FULL_VERSION: "${{needs.set_versions.outputs.full}}-${{ needs.test-build.outputs.gitleaks_version }}"
+          LATEST_VERSION: "${{needs.set_versions.outputs.numerical}}"
           LATEST_IMAGE_DIGEST: "${{ steps.image_digest.outputs.digest }}"
           DOCKER_TAGS: ${{ env.DOCKER_TAGS }}
         run: |
-          bash .github/scripts/readme_docker_tag_section.sh
+          python .github/scripts/readme_docker_tag_section.py --verbose
 
       - name: Update Docker Hub Description
         uses: peter-evans/dockerhub-description@v4
