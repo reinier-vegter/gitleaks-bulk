@@ -118,7 +118,7 @@ jobs:
 
       - id: get_dockerhub_tags
         run: |
-          DOCKER_TAGS=$(curl -s https://hub.docker.com/v2/repositories/${{ secrets.DOCKERHUB_USERNAME }}/gitleaks-bulk/tags | jq -r '.results[].name')
+          DOCKER_TAGS=$(curl -s https://hub.docker.com/v2/repositories/${{ secrets.DOCKERHUB_USERNAME }}/gitleaks-bulk/tags | jq -r '.results[].name' | tr '\n' ' ')
           echo "DOCKER_TAGS=${DOCKER_TAGS}" >> $GITHUB_ENV # Or GITHUB_OUTPUT if supported by your runner
 
       - name: Generate Supported Tags List for README
