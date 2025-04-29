@@ -108,6 +108,16 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      # Get the image digest after the build
+      - name: Get image digest
+        id: image_digest
+        run: |
+          # Get the digest of the locally built image
+          IMAGE_ID=$(docker images -q rvegter/gitleaks-bulk:latest)
+          IMAGE_DIGEST=$(docker inspect --format='{{index .Id}}' $IMAGE_ID)
+          echo "digest=$IMAGE_DIGEST" >> $GITHUB_OUTPUT
+          echo "Built image digest: $IMAGE_DIGEST"
+
       - name: Push Docker image to DockerHub
         if: success()
         run: |
@@ -128,6 +138,7 @@ jobs:
           README_OUTPUT: "README.dockerhub.md"
           VERSION_TAG_PATTERN: "^[0-9]+\\.[0-9]+\\.[0-9]+.*"
           FULL_VERSION: "${{needs.set_versions.outputs.full}}-${{ needs.test-build.outputs.gitleaks_version }}"
+          LATEST_IMAGE_DIGEST: "${{ steps.image_digest.outputs.digest }}"
           DOCKER_TAGS: ${{ env.DOCKER_TAGS }}
         run: |
           bash .github/scripts/readme_docker_tag_section.sh
