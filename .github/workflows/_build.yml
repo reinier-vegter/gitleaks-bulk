@@ -125,7 +125,8 @@ jobs:
   # Builds docker image that can be used for tests.
   # Image will be tagged "temp:${{github.sha}}"
   build-docker:
-    needs: [ deps, tests ]
+#    needs: [ deps, tests ]
+    needs: [ deps ]
     runs-on: ubuntu-latest
     outputs:
       image_tag: "temp:${{github.sha}}"
