@@ -8,7 +8,7 @@ __pycache__/
 *.json
 !version.json
 *.bak
-.some_info
+.some_info**
 !.some_info.example
 *.csv
 *.spec
