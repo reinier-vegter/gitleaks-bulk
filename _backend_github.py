@@ -100,7 +100,7 @@ class GithubBackend(VcsBackend):
                     name=repo.name,
                     ssh_link=repo.ssh_url,
                     http_link=repo.clone_url,
-                    default_branch=repo.default_branch if 'default_branch' in repo else None
+                    default_branch=(repo.default_branch if hasattr(repo, 'default_branch') else None)
                 )
             if bar:
                 bar.next()

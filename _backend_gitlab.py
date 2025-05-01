@@ -70,7 +70,7 @@ class GitlabBackend(VcsBackend):
                     name=project.name,
                     ssh_link=project.ssh_url_to_repo,
                     http_link=project.http_url_to_repo,
-                    default_branch=project.get('default_branch'))
+                    default_branch=(project.default_branch if hasattr(project, 'default_branch') else None))
             if bar:
                 bar.next()
         if bar:
