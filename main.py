@@ -378,7 +378,7 @@ def writeFile(object, path):
 
 def readFile(path) -> Dict[int, Repo]:
     if config["verbose"]:
-        print(f"Reading jspon file [{path}]")
+        print(f"Reading yaml file [{path}]")
     with open(path, "r") as outfile:
         data = yaml.safe_load(outfile)
         if "data_version" in data and data["data_version"] == config["data_version"]:
