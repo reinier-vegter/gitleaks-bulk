@@ -92,13 +92,22 @@ path = '''(?:^|/).*\.(?:yaml|yml)$'''
 
   [[rules.allowlists]]
   regexTarget = "line"
-  regexes = [ '''.*=.*(?:name|space|example|replace|encr|var|name).*''' ]
+  regexes = [
+      '''.*=.*(?:name|space|example|replace|encr|var|name).*''',
+      # something like:
+        # my_var: secret=foo/bar:secret_id
+      '''[\w]+:\s*["]?secret=[\w.-]+(?:/[\w.-]+)*:[\w.-]+["]?$''',
+      # something like:
+        # my_var: secret=foo/bar .....
+      '''[\w]+:\s*["]?secret=[\w.-]+(?:/[\w.-]+)*\s+'''
+  ]
   stopwords = [
       "example",
       "pass",
       "replace",
       "var",
-      "name"
+      "name",
+      "vault"
   ]
 
 [[rules]]
@@ -118,11 +127,15 @@ path = '''(?:^|/).*\.(?:yaml|yml)$'''
     '''.*:.*(?:name|space|example|replace|encr|var|name).*''',
     ''':[ ]*BAMSCRT@0''', # bamboo encrypted values
     '''.*:[ ]*Ag[A-Za-z0-9+/=]{100,}''', # k8s sealed secret
+    # something like:
+      # my_var: /foo/bar/zee
+    '''[\w]+:\s*["]?/?[\w.-]+(?:/[\w.-]+)*["]?$'''
   ]
   stopwords = [
       "example",
       "pass",
       "replace",
       "var",
-      "name"
+      "name",
+      "vault"
   ]
