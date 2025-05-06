@@ -57,7 +57,6 @@ config: Dict = {
 }
 cache = {}
 
-
 def getRepoFileName(backend: VcsBackend):
     return f'{config["output_folder"]}/repos_{backend.name()}.yaml'
 
@@ -75,6 +74,8 @@ def main():
         if len(repos) == 0:
             raise Exception("No repo data fetched, something wrong")
 
+        cache['repos']: Dict[int, Repo] = repos # Used later to update single repo's and persist.
+
         pick = None
         if config["interactive"]:
             pick: Tuple[Repo, str] = interactivePickRepo(repos)
@@ -82,22 +83,63 @@ def main():
                 print("No repo selected, exiting")
                 sys.exit(0)
 
-        if not config["no_clone"]:
-            cloneRepos(repos, pick)
+        if config["scan_gitleaks"] and not config["force_scan"]: print("\nNOTE: ONLY SCANNING UNSCANNED REPOS! Use --force_scan to scan everything.\n")
 
-        if config["scan_gitleaks"] or config["force_scan"]:
-            repos_dirty = gitleaksScan(repos, pick)
-            if pick is None:
-                print(f"Found secrets in {len(repos_dirty)} repositories.")
-                print(
-                    f'Reports stored in [{config["output_folder"]}/reports].')
-            if len(repos_dirty):
-                sys.exit(3)
-            sys.exit(0)
+        repos_filtered = repos_in_filterset(repos, pick)
+
+        # Ask user to proceed cloning.
+        if not config["interactive"] and not config["no_clone"]:
+            user_input = input(
+                f"Do you want to continue processing {len(repos_filtered)} repositories?\nNote you can stop/resume this any time: (Y/n): ")
+            if user_input.lower() in ["yes", "y", ""]:
+                print("Continuing...")
+            else:
+                print("Exiting...")
+                sys.exit(0)
+
+        batches = repos_to_batches(repos_filtered, config["batch_size"])
+        repos_dirty: Dict[int, Repo] = {}
+        batch_counter = 1
+        for batch in batches:
+
+            if len(batches) > 1: print(f"Processing batch {batch_counter}/{len(batches)}")
+
+            if not config["no_clone"]:
+                cloneRepos(batch, pick)
+
+            if config["scan_gitleaks"] or config["force_scan"]:
+                repos_dirty_batch = gitleaksScan(batch, pick)
+                repos_dirty.update(repos_dirty_batch)
+
+                if config["remove_clones"] and not config["interactive"]:
+                    remove_repo_clones(batch)
+
+            batch_counter+=1
+
+        if pick is None:
+            print(f"Found secrets in {len(repos_dirty)} repositories.")
+            print(
+                f'Reports stored in [{config["output_folder"]}/reports].')
+        if len(repos_dirty):
+            sys.exit(3)
+        sys.exit(0)
     except Exception as e:
         print(e)
         sys.exit(1)
 
+def repos_to_batches(repos: Dict[int, Repo], size: int):
+    if size == 0: return [repos]
+    batches = []
+    batch: Dict[int, Repo] = {}
+    for repo_id, repo_object in repos.items():
+        batch[repo_id] = repo_object
+        if len(batch) == size:
+            batches.append(batch)
+            batch = {}
+
+    if len(batch):
+        batches.append(batch)
+    return batches
 
 def discover_backends() -> Dict[str, VcsBackend]:
     backends: Dict[str, VcsBackend] = {}
@@ -245,6 +287,19 @@ def getinfo():
         help="Do not update every git repo to it's latest state (optional)"
     )
     parser.add_argument(
+        "--keep_clones",
+        action='store_true',
+        required=False,
+        help="Do not remove cloned repo's after scanning. Useful for triaging. Clones are never removed in interactive mode. (optional)"
+    )
+    parser.add_argument(
+        "--batch_size",
+        type=int,
+        default=20,
+        required=False,
+        help="Batch size for cloning/scanning. Put 0 to disable batching. Default: 20 (optional)"
+    )
+    parser.add_argument(
         "-v", "--verbose",
         action='store_true',
         required=False,
@@ -305,6 +360,8 @@ def getinfo():
     config["grouprepofilter"] = args.group_repo_filter
     config["scan_gitleaks"] = True if not args.noscan else False
     config["no_clone"] = args.no_clone
+    config["remove_clones"] = not args.keep_clones
+    config["batch_size"] = args.batch_size if args.batch_size > 0 else 0
     config["rulesfilter"] = args.rulesfilter
     config["force_scan"] = args.force_scan
     config["verbose"] = args.verbose
@@ -359,10 +416,23 @@ def backendSetupData():
             ConnectionInput(base_url=url, token=token))
 
 
+def persistRepoData(repo: Repo):
+    if not 'repos' in cache: raise Exception("No repos in cache, something wrong")
+    repos = cache['repos']
+    cache['repos'][repo["id"]] = repo
+    persistState(repos, repo["type"])
+
+
 def persistState(repos: Dict[int, Repo], backend_type: str):
     data = {k: v for k, v in repos.items() if v["type"] == backend_type}
     writeFile(data, getRepoFileName(config["backends"][backend_type]))
 
+def remove_repo_clones(repos: Dict[int, Repo]):
+    for repo in repos.values():
+        if "folder" in repo and os.path.exists(repo["folder"]):
+            if os.path.realpath(repo["folder"]).startswith(os.path.realpath(os.getcwd()) + "/output/repos/"):
+                if config["verbose"]: print(f"Removing clone [{repo["folder"]}]")
+                shutil.rmtree(repo["folder"])
 
 def writeFile(object, path):
     data = {
@@ -392,8 +462,22 @@ def enrichRepoData(repo: Repo):
     if config["verbose"]:
         print(f"Fetching latest branch/contact details for project [{repo["group"]}/{repo["name"]}]")
     backend: VcsBackend = config["backends"][repo["type"]]
-    return backend.enrichRepo(repo)
 
+    try:
+        return backend.enrichRepo(repo)
+    except Exception as e:
+        print(f"Unable to enrich data for [{repo["group"]}/{repo["name"]}]: [${e.args[0]}]")
+        return repo
+
+def repos_in_filterset(repos: Dict[int, Repo], pick: Tuple[Repo, str]) -> Dict[int, Repo]:
+    result: Dict[int, Repo] = {
+        repo_id: repo_object
+        for repo_id, repo_object in repos.items()
+        if checkRepoInFilterSet(repo_object)
+    } if pick is None else {
+        pick[0]['id']: pick[0]
+    }
+    return result
 
 def checkRepoInFilterSet(repo: Repo):
     if config["grouprepofilter"] is None and config["repofilter"] is None and config["groupfilter"] is None:
@@ -438,15 +522,7 @@ def cloneRepos(repos: Dict[int, Repo], picked_repo: Tuple[Repo, str] = None):
             print("No repositories left after filtering, exit")
             sys.exit(0)
 
-        user_input = input(
-            f"Do you want to continue cloning {len(repos_to_clone)} repositories?\nAlready present repo's will be skipped.\nNote you can stop/resume this any time: (Y/n): ")
-        if user_input.lower() in ["yes", "y", ""]:
-            print("Continuing...")
-        else:
-            print("Exiting...")
-            sys.exit(0)
-
-    bar = Bar('Processing', max=len(repos_to_clone)
+    bar = Bar('Cloning', max=len(repos_to_clone)
               ) if not config["verbose"] and picked_repo is None else None
     for repo in repos_to_clone:
         backend: VcsBackend = config["backends"][repo["type"]]
@@ -543,8 +619,7 @@ def cloneRepos(repos: Dict[int, Repo], picked_repo: Tuple[Repo, str] = None):
                         print(f"Unable to clone repo [{repo["group"]}/{repo["name"]}], branch [{target_branch}]: \n{e.stderr}")
                         if e.status in [128]:
                             raise e  # Break on auth issues.
-
-            persistState(repos, repo["type"])
+            persistRepoData(repo)
             if bar:
                 bar.next()
 
@@ -678,7 +753,7 @@ def gitleaksScan(
                     repo["report_path"] = None
                 repo["scanned"] = target_branch
 
-                persistState(repos, repo["type"])
+                persistRepoData(repo)
 
             else:
                 if config["verbose"] or picked_repo:
