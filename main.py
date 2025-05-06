@@ -105,7 +105,8 @@ def main():
 
         batches = repos_to_batches(repos_filtered, config["batch_size"])
         dirty_repos: Dict[int, Repo] = {}
-        batch_counter = 1
+        batch_counter: int = 1
+
         for batch in batches:
             if len(batches) > 1 and config["verbose"]: print(f"Processing batch {batch_counter}/{len(batches)}")
             process_batch(batch, dirty_repos, bar=bar, verbose=config["verbose"])
@@ -113,8 +114,7 @@ def main():
 
         if bar: bar.finish()
         print(f"Found secrets in {len(dirty_repos)} repositories.")
-        print(
-            f'Reports stored in [{config["output_folder"]}/reports].')
+        print(f'Reports stored in [{config["output_folder"]}/reports].')
         if len(dirty_repos):
             sys.exit(3)
         sys.exit(0)
@@ -645,8 +645,7 @@ def interactive_pick_enriched_repo(repos: Dict[int, Repo]) -> Tuple[Repo, str]:
     repo = enrichRepoData(repos[answer_repo[1]])
 
     branch = repo["default_branch"]
-    if answer_repo and repos[answer_repo[1]
-                             ]["latest_branch"] != repo["default_branch"]:
+    if answer_repo and repos[answer_repo[1]]["latest_branch"] != repo["default_branch"]:
         answer_branch = inquirer.fuzzy(
             message="Please select a branch:",
             choices=[repo["latest_branch"], repo["default_branch"]],
