@@ -76,19 +76,25 @@ def main():
 
         cache['repos']: Dict[int, Repo] = repos # Used later to update single repo's and persist.
 
-        pick = None
+        # Interactive clone/scan.
         if config["interactive"]:
-            pick: Tuple[Repo, str] = interactivePickRepo(repos)
-            if not pick:
+            repo, branch = interactive_pick_enriched_repo(repos)
+            if not repo or not branch:
                 print("No repo selected, exiting")
                 sys.exit(0)
+            cloneRepo(repo, branch)
+            repo = gitleaksScanRepo(repo, verbose=True, branch=branch)
+            persistRepoData(repo)
+            sys.exit(0)
 
+        # Batched clone/scan.
         if config["scan_gitleaks"] and not config["force_scan"]: print("\nNOTE: ONLY SCANNING UNSCANNED REPOS! Use --force_scan to scan everything.\n")
+        repos_filtered = repos_in_filterset(repos)
+        bar = Bar('Cloning/scanning', max=len(repos_filtered)
+                  ) if not config["verbose"] else None
 
-        repos_filtered = repos_in_filterset(repos, pick)
-
-        # Ask user to proceed cloning.
-        if not config["interactive"] and not config["no_clone"]:
+        # Ask user to proceed processing.
+        if not config["interactive"]:
             user_input = input(
                 f"Do you want to continue processing {len(repos_filtered)} repositories?\nNote you can stop/resume this any time: (Y/n): ")
             if user_input.lower() in ["yes", "y", ""]:
@@ -98,34 +104,50 @@ def main():
                 sys.exit(0)
 
         batches = repos_to_batches(repos_filtered, config["batch_size"])
-        repos_dirty: Dict[int, Repo] = {}
+        dirty_repos: Dict[int, Repo] = {}
         batch_counter = 1
         for batch in batches:
-
-            if len(batches) > 1: print(f"Processing batch {batch_counter}/{len(batches)}")
-
-            if not config["no_clone"]:
-                cloneRepos(batch, pick)
-
-            if config["scan_gitleaks"] or config["force_scan"]:
-                repos_dirty_batch = gitleaksScan(batch, pick)
-                repos_dirty.update(repos_dirty_batch)
-
-                if config["remove_clones"] and not config["interactive"]:
-                    remove_repo_clones(batch)
-
+            if len(batches) > 1 and config["verbose"]: print(f"Processing batch {batch_counter}/{len(batches)}")
+            process_batch(batch, dirty_repos, bar=bar, verbose=config["verbose"])
             batch_counter+=1
 
-        if pick is None:
-            print(f"Found secrets in {len(repos_dirty)} repositories.")
-            print(
-                f'Reports stored in [{config["output_folder"]}/reports].')
-        if len(repos_dirty):
+        if bar: bar.finish()
+        print(f"Found secrets in {len(dirty_repos)} repositories.")
+        print(
+            f'Reports stored in [{config["output_folder"]}/reports].')
+        if len(dirty_repos):
             sys.exit(3)
         sys.exit(0)
     except Exception as e:
         print(e)
         sys.exit(1)
+
+def process_batch(batch: Dict[int, Repo], dirty_repos: Dict[int, Repo], verbose: bool = False, bar: Bar = None):
+    for repo in batch.values():
+        repo = enrichRepoData(repo)
+        try:
+            # Clone/update clone
+            if not config["no_clone"]: cloneRepo(repo, verbose=verbose)
+
+            # Scan with gitleaks
+            if config["scan_gitleaks"] or config["force_scan"]:
+                # Only scan if repo has branches (not empty):
+                if not repo.get("default_branch", None) and verbose: print(f"Repo [{repo['group']}/{repo['name']}] does not have a default branch, skipping")
+
+                target_branch = repo["latest_branch"] if config["scan_last_branch"] else repo["default_branch"]
+
+                if config["force_scan"] or "scanned" not in repo or repo["scanned"] != target_branch:
+                    repo = gitleaksScanRepo(
+                        repo, verbose=verbose, dirty_repos=dirty_repos, branch=target_branch)
+                else:
+                    if verbose: print(f"Skipping [{repo["group"]}/{repo["name"]}], already scanned branch [{target_branch}]")
+
+            persistRepoData(repo)
+        except Exception as e:
+            print(f"Problem: {e}")
+            if bar: bar.next()
+            continue
+        if bar: bar.next()
 
 def repos_to_batches(repos: Dict[int, Repo], size: int):
     if size == 0: return [repos]
@@ -459,6 +481,9 @@ def readFile(path) -> Dict[int, Repo]:
 
 
 def enrichRepoData(repo: Repo):
+    repos_folder = config["output_folder"] + "/repos"
+    repo["folder"] = f"{repos_folder}/{repo["type"]}/{repo["group"]}/{repo["name"]}"
+
     if config["verbose"]:
         print(f"Fetching latest branch/contact details for project [{repo["group"]}/{repo["name"]}]")
     backend: VcsBackend = config["backends"][repo["type"]]
@@ -469,13 +494,11 @@ def enrichRepoData(repo: Repo):
         print(f"Unable to enrich data for [{repo["group"]}/{repo["name"]}]: [${e.args[0]}]")
         return repo
 
-def repos_in_filterset(repos: Dict[int, Repo], pick: Tuple[Repo, str]) -> Dict[int, Repo]:
+def repos_in_filterset(repos: Dict[int, Repo]) -> Dict[int, Repo]:
     result: Dict[int, Repo] = {
         repo_id: repo_object
         for repo_id, repo_object in repos.items()
         if checkRepoInFilterSet(repo_object)
-    } if pick is None else {
-        pick[0]['id']: pick[0]
     }
     return result
 
@@ -498,6 +521,7 @@ def checkRepoInFilterSet(repo: Repo):
 
 def create_askpass_script(username, token):
     fd, path = tempfile.mkstemp(suffix='.sh')
+    os.chmod(path, 0o700)
     with os.fdopen(fd, 'w') as f:
         f.write(f"""#!/bin/sh
 if echo "$1" | grep -q "Username for"; then
@@ -506,132 +530,108 @@ else
   echo "{token}"
 fi
 """)
-    os.chmod(path, 0o700)  # Make executable
     return path
 
+def cloneRepo(enriched_repo: Repo, branch: str = None, verbose: bool = False):
+    backend: VcsBackend = config["backends"][enriched_repo["type"]]
+    username, token = backend.get_git_username_password()
+    askpass_script = create_askpass_script(username, token)
+    git_env = {
+        'GIT_TERMINAL_PROMPT': '0',
+        'GIT_ASKPASS': askpass_script
+    }
+    try:
+        # Only clone if repo has branches (not empty)
+        if not enriched_repo.get("default_branch", None): raise Exception(f"Not cloning repo [{enriched_repo["group"]}/{enriched_repo["name"]}], no default branch")
+        target_branch = branch if branch else enriched_repo[
+            "latest_branch"] if config["scan_last_branch"] else enriched_repo["default_branch"]
 
-def cloneRepos(repos: Dict[int, Repo], picked_repo: Tuple[Repo, str] = None):
-    repos_folder = config["output_folder"] + "/repos"
-    if not os.path.exists(repos_folder):
-        os.mkdir(repos_folder)
+        #  Existing folder ? Switch to target branch latest state.
+        if os.path.exists(enriched_repo["folder"]):
+            if not os.path.exists(f"{enriched_repo["folder"]}/.git"):
+                raise Exception(
+                    f"Found repo-folder while it does not contain git info, aborting.\nRemove it to proceed in next run: [{enriched_repo["folder"]}].")
 
-    repos_to_clone = [repo for repo in repos.values() if checkRepoInFilterSet(
-        repo)] if picked_repo is None else [picked_repo[0]]
-    if picked_repo is None:
-        if not len(repos_to_clone):
-            print("No repositories left after filtering, exit")
-            sys.exit(0)
+            # Only update if necessary.
+            gitrepo = git.Repo(enriched_repo["folder"])
+            if not config["update_repos"] and gitrepo.active_branch and gitrepo.active_branch.name == target_branch:
+                return True
 
-    bar = Bar('Cloning', max=len(repos_to_clone)
-              ) if not config["verbose"] and picked_repo is None else None
-    for repo in repos_to_clone:
-        backend: VcsBackend = config["backends"][repo["type"]]
-        username, token = backend.get_git_username_password()
-        askpass_script = create_askpass_script(username, token)
-        git_env = {
-            'GIT_TERMINAL_PROMPT': '0',
-            'GIT_ASKPASS': askpass_script
-        }
+            if verbose:
+                print(f"Updating git state for [{enriched_repo["group"]}/{enriched_repo["name"]}], branch [{target_branch}]")
 
-        try:
-            if picked_repo is None:  # Assume in interactive mode data is already enriched.
-                enrichRepoData(repo)
+            origin = gitrepo.remotes.origin
+            origin_url = origin.url
+            if origin_url != enriched_repo["http_link"]:
+                raise Exception(
+                    f"Found repo-folder with unexpected origin url, aborting.\nRemove it to proceed in next run: [{enriched_repo["folder"]}].")
 
-            # Only clone if repo has branches (not empty)
-            if repo["default_branch"]:
-                repo["folder"] = f"{repos_folder}/{repo["type"]}/{repo["group"]}/{repo["name"]}"
+            try:
+                with gitrepo.git.custom_environment(**git_env):
+                    # Use gitrepo.git.execute instead of origin.fetch
+                    gitrepo.git.execute(['git', 'fetch', 'origin',
+                                         f'+refs/heads/{target_branch}:refs/remotes/origin/{target_branch}',
+                                         '--depth=1'])
+            except Exception as e:
+                print(f"\nWARNING: unable to fetch branch [{target_branch}] in [{enriched_repo['folder']}], not changing state")
+                raise e
 
-                target_branch = picked_repo[1] if picked_repo else repo[
-                    "latest_branch"] if config["scan_last_branch"] else repo["default_branch"]
+            try:
+                with gitrepo.git.custom_environment(**git_env):
+                    if target_branch in gitrepo.heads:
+                        gitrepo.git.checkout(target_branch)
+                    else:
+                        # 🔹 Create the local branch tracking origin/TARGET_BRANCH
+                        gitrepo.git.checkout(
+                            "-B", target_branch, f"origin/{target_branch}")
+                    gitrepo.git.reset(
+                        "--hard", f"origin/{target_branch}")
+            except Exception as e:
+                print(f"\nWARNING: unable to reset state for [{target_branch}] in [{enriched_repo['folder']}].")
+                raise e
 
-                #  Existing folder ? Switch to target branch latest state.
-                if os.path.exists(repo["folder"]):
-                    if not os.path.exists(f"{repo["folder"]}/.git"):
-                        raise Exception(f"Found repo-folder while it does not contain git info, aborting.\nRemove it to proceed in next run: [{repo["folder"]}].")
+        else:
+            if verbose:
+                print(f"Cloning repo [{enriched_repo["group"]}/{enriched_repo["name"]}], branch [{target_branch}]")
 
-                    # Only update if necessary.
-                    gitrepo = git.Repo(repo["folder"])
-                    if not config["update_repos"] and gitrepo.active_branch and gitrepo.active_branch.name == target_branch:
-                        if bar:
-                            bar.next()
-                        continue
+            try:
+                # Create the directory if it doesn't exist
+                os.makedirs(enriched_repo["folder"], exist_ok=True)
 
-                    if config["verbose"] or picked_repo is not None:
-                        print(f"Updating git state for [{repo["group"]}/{repo["name"]}], branch [{target_branch}]")
+                # Initialize a new Git repository
+                gitrepo = git.Repo.init(enriched_repo["folder"])
+                with gitrepo.git.custom_environment(**git_env):
 
-                    origin = gitrepo.remotes.origin
-                    origin_url = origin.url
-                    if origin_url != repo["http_link"]:
-                        raise Exception(f"Found repo-folder with unexpected origin url, aborting.\nRemove it to proceed in next run: [{repo["folder"]}].")
+                    gitrepo.git.execute([
+                        'git', 'remote', 'add', 'origin', enriched_repo["http_link"]
+                    ])
 
-                    fetch_problem = False
-                    try:
-                        with gitrepo.git.custom_environment(**git_env):
-                            # Use gitrepo.git.execute instead of origin.fetch
-                            gitrepo.git.execute(['git', 'fetch', 'origin',
-                                                 f'+refs/heads/{target_branch}:refs/remotes/origin/{target_branch}',
-                                                 '--depth=1'])
-                    except Exception:
-                        print(
-                            f"\nWARNING: unable to fetch branch [{target_branch}] in [{repo['folder']}], not changing state")
-                        fetch_problem = True
+                    gitrepo.git.execute([
+                        'git', 'fetch', 'origin',
+                        f'{target_branch}:refs/remotes/origin/{target_branch}',
+                        '--depth=1',
+                        '--filter=blob:limit=100k',
+                        '--no-tags'
+                    ])
 
-                    if not fetch_problem:
-                        with gitrepo.git.custom_environment(**git_env):
-                            if target_branch in gitrepo.heads:
-                                gitrepo.git.checkout(target_branch)
-                            else:
-                                # 🔹 Create the local branch tracking origin/TARGET_BRANCH
-                                gitrepo.git.checkout(
-                                    "-B", target_branch, f"origin/{target_branch}")
-                            gitrepo.git.reset(
-                                "--hard", f"origin/{target_branch}")
+                    gitrepo.git.execute([
+                        'git', 'checkout', '-b', target_branch,
+                        f'origin/{target_branch}'
+                    ])
+            except Exception as e:
+                print(
+                    f"Unable to clone repo [{enriched_repo["group"]}/{enriched_repo["name"]}], branch [{target_branch}]: \n{e.stderr}")
 
-                else:
-                    if config["verbose"] or picked_repo is not None:
-                        print(f"Cloning repo [{repo["group"]}/{repo["name"]}], branch [{target_branch}]")
+                raise e
+                # if e.status in [128]:
+                #     raise e  # Break on auth issues.
+                # return False
+    finally:
+        # Clean up the temporary script
+        if os.path.exists(askpass_script):
+            os.unlink(askpass_script)
 
-                    try:
-                        # Create the directory if it doesn't exist
-                        os.makedirs(repo["folder"], exist_ok=True)
-
-                        # Initialize a new Git repository
-                        gitrepo = git.Repo.init(repo["folder"])
-                        with gitrepo.git.custom_environment(**git_env):
-
-                            gitrepo.git.execute([
-                                'git', 'remote', 'add', 'origin', repo["http_link"]
-                            ])
-
-                            gitrepo.git.execute([
-                                'git', 'fetch', 'origin',
-                                f'{target_branch}:refs/remotes/origin/{target_branch}',
-                                '--depth=1',
-                                '--filter=blob:limit=100k',
-                                '--no-tags'
-                            ])
-
-                            gitrepo.git.execute([
-                                'git', 'checkout', '-b', target_branch,
-                                f'origin/{target_branch}'
-                            ])
-                    except Exception as e:
-                        print(f"Unable to clone repo [{repo["group"]}/{repo["name"]}], branch [{target_branch}]: \n{e.stderr}")
-                        if e.status in [128]:
-                            raise e  # Break on auth issues.
-            persistRepoData(repo)
-            if bar:
-                bar.next()
-
-        finally:
-            # Clean up the temporary script
-            if os.path.exists(askpass_script):
-                os.unlink(askpass_script)
-    if bar:
-        bar.finish()
-
-
-def interactivePickRepo(repos: Dict[int, Repo]) -> Tuple[Repo, str]:
+def interactive_pick_enriched_repo(repos: Dict[int, Repo]) -> Tuple[Repo, str]:
     answer_repo = inquirer.fuzzy(
         message="Please select a repository:",
         choices=[(f"{repo["group"]}/{repo['name']}", repo["id"]) for repo in repos.values()],
@@ -655,8 +655,7 @@ def interactivePickRepo(repos: Dict[int, Repo]) -> Tuple[Repo, str]:
         ).execute()
         branch = answer_branch if answer_branch else branch
 
-    return (repo, branch)
-
+    return repo, branch
 
 def isWindows():
     return os.name == 'nt'
@@ -702,7 +701,6 @@ def checkSetup():
             # Set environment variable to use it globally
             os.environ["REQUESTS_CA_BUNDLE"] = os.path.abspath(
                 MERGED_TRUSTSTORE)
-
 
 def gitleaksScan(
         repos: Dict[int, Repo], picked_repo: Tuple[Repo, str] = None) -> Dict[int, Repo]:
@@ -823,12 +821,12 @@ def prepareRules():
     return None
 
 
-def gitleaksScanRepo(repo: Repo, removeEmptyReport=True,
-                     localVerbose=False) -> Tuple[str, str, int, int, str]:
+def gitleaksScanRepo(repo: Repo, removeEmptyReport=True, branch: str = None, verbose=False, dirty_repos: Dict[int, Repo] = None) -> Repo:
+    if not os.path.exists(repo["folder"]): raise Exception(f"Cannot scan, folder [{repo["folder"]}] does not exist")
     report_name = f"{repo["group"]}/{repo["name"]}".replace("/", "__")
     report_path = f"{config["output_folder"]}/reports/{repo['type']}.{report_name}.{config["reports_format"]}"
     if not os.path.exists(repo["folder"]):
-        raise Exception(f"Repository not available localy, expected [{repo["folder"]}]")
+        raise Exception(f"Repository not available locally, expected [{repo["folder"]}]")
 
     gitleaks_config = config["gitleaksTomlFile"] if config["gitleaksTomlFile"] else config["gitleaksTomlFileCustomDefault"]
 
@@ -871,14 +869,14 @@ def gitleaksScanRepo(repo: Repo, removeEmptyReport=True,
 
     cmd = " ".join(opts)
 
-    if config["verbose"] or localVerbose:
+    if verbose:
         print(f"Scanning project [{repo["group"]}/{repo["name"]}]")
         print(f"Command: [{cmd}]")
 
     result = subprocess.run(cmd, shell=True, text=True, capture_output=True)
 
     if removeEmptyReport and result.returncode == 0:
-        if config["verbose"] or localVerbose:
+        if verbose:
             print("Removing report, no findings")
         os.remove(report_path)
 
@@ -888,12 +886,24 @@ def gitleaksScanRepo(repo: Repo, removeEmptyReport=True,
         if match:
             num_findings = int(match.group(1))
 
-        if config["verbose"] or localVerbose:
+        if verbose:
             print(
                 f"Found [{num_findings}] findings in project, report: [{report_path}]")
 
-    return result.stdout, result.stderr, result.returncode, num_findings, report_path
+    if result.returncode != 0 and result.returncode != 3:
+        raise Exception(
+            f"Problem running gitleaks (exit code {result.returncode}):\n---- stderr: ----\n{result.stderr}\n---- stdout: ----\n{result.stdout}")
 
+    if result.returncode == 3:
+        repo["secrets_found"] = num_findings
+        repo["report_path"] = report_path
+        if dirty_repos is not None:
+            dirty_repos[repo["id"]] = repo
+    else:
+        repo["secrets_found"] = 0
+        repo["report_path"] = None
+    repo["scanned"] = branch
+    return repo
 
 def generateExecutiveReport():
     repos: Dict[int, Repo] = {}
