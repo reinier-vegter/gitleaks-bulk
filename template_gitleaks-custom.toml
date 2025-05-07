@@ -96,10 +96,16 @@ path = '''(?:^|/).*\.(?:yaml|yml)$'''
       '''.*=.*(?:name|space|example|replace|encr|var|name).*''',
       # something like:
         # my_var: secret=foo/bar:secret_id
-      '''[\w]+:\s*["]?secret=[\w.-]+(?:/[\w.-]+)*:[\w.-]+["]?$''',
+      '''[\w]+:\s*["]?secret=/?[\w.-]+/[\w.-]+(?:/[\w.-]+)*:[\w.-]+["]?$''',
       # something like:
-        # my_var: secret=foo/bar .....
-      '''[\w]+:\s*["]?secret=[\w.-]+(?:/[\w.-]+)*\s+'''
+        # my_var: secret=foo/bar ..... (with whitespace)
+      '''[\w]+:\s*["]?secret=/?[\w.-]+/[\w.-]+(?:/[\w.-]+)*\s+''',
+      # my_var: secret=foo/bar
+      '''[\w]+:\s*["]?secret=/?[\w.-]+/[\w.-]+(?:/[\w.-]+)*$''',
+      # secret=... {{ var }}
+      '''secret=.*{{[\w\s._-]+}}''',
+      '''lookup''',
+      '''_(rule|file):''',
   ]
   stopwords = [
       "example",
@@ -107,7 +113,7 @@ path = '''(?:^|/).*\.(?:yaml|yml)$'''
       "replace",
       "var",
       "name",
-      "vault"
+      "vault",
   ]
 
 [[rules]]
@@ -124,12 +130,17 @@ path = '''(?:^|/).*\.(?:yaml|yml)$'''
   [[rules.allowlists]]
   regexTarget = "line"
   regexes = [
+    '''.*:.*secret=''',
     '''.*:.*(?:name|space|example|replace|encr|var|name).*''',
     ''':[ ]*BAMSCRT@0''', # bamboo encrypted values
     '''.*:[ ]*Ag[A-Za-z0-9+/=]{100,}''', # k8s sealed secret
     # something like:
       # my_var: /foo/bar/zee
-    '''[\w]+:\s*["]?/?[\w.-]+(?:/[\w.-]+)*["]?$'''
+    '''.*[\w]+:\s*["]?/?[\w.-]+/[\w.-]+(?:/[\w.-]+)*["]?$''',
+    # secret=... {{ var }}
+    '''secret=.*{{[\w\s._-]+}}''',
+    '''lookup''',
+    '''_(rule|file):''',
   ]
   stopwords = [
       "example",
@@ -137,5 +148,5 @@ path = '''(?:^|/).*\.(?:yaml|yml)$'''
       "replace",
       "var",
       "name",
-      "vault"
+      "vault",
   ]
