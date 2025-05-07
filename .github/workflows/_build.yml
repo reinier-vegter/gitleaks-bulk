@@ -155,7 +155,7 @@ jobs:
           echo "Gitleaks version: $version"
 
       - name: Run gitleaks rule tests inside the built image
-        continue-on-error: true
+        continue-on-error: false
         run: |
           echo "Attempting to run tests in image"
           cp template_gitleaks.toml gitleaks.toml
