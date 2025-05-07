@@ -701,69 +701,8 @@ def checkSetup():
             os.environ["REQUESTS_CA_BUNDLE"] = os.path.abspath(
                 MERGED_TRUSTSTORE)
 
-def gitleaksScan(
-        repos: Dict[int, Repo], picked_repo: Tuple[Repo, str] = None) -> Dict[int, Repo]:
-    localVerbose = True if picked_repo is not None else False
-    print(f"Starting to scan projects with gitleaks.{" I can resume any time." if picked_repo is None else ""}")
-    repos_folder = config["output_folder"] + "/repos"
-    if not os.path.exists(repos_folder):
-        raise Exception("No /repos folder")
-
-    reports_folder = f"{config["output_folder"]}/reports"
-    if not os.path.exists(reports_folder):
-        os.mkdir(reports_folder)
-
-    repos_to_scan = [repo for repo in repos.values() if checkRepoInFilterSet(
-        repo)] if picked_repo is None else [picked_repo[0]]
-    bar = Bar('Scanning', max=len(repos_to_scan)
-              ) if not config["verbose"] and picked_repo is None else None
-    repos_dirty: Dict[int, Repo] = {}
-    for repo in repos_to_scan:
-        # Only scan if repo has branches (not empty):
-        if repo["default_branch"]:
-            # If batch and folder somehow doesn't exist, continue.
-            if not os.path.exists(repo["folder"]) and picked_repo is None:
-                print(
-                    f"\nWARNING: unable to scan [{repo['group']}/{repo['name']}] in [{repo['folder']}], not available")
-                if bar:
-                    bar.next()
-                continue
-
-            target_branch = picked_repo[1] if picked_repo else repo[
-                "latest_branch"] if config["scan_last_branch"] else repo["default_branch"]
-
-            if config["force_scan"] or "scanned" not in repo or repo["scanned"] != target_branch:
-                stdout, stderr, returncode, num_findings, report_path = gitleaksScanRepo(
-                    repo, localVerbose=localVerbose)
-                if returncode != 0 and returncode != 3:
-                    if bar:
-                        bar.finish()
-                    raise Exception(
-                        f"Problem running gitleaks in docker (exit code {returncode}):\n---- stderr: ----\n{stderr}\n---- stdout: ----\n{stdout}")
-
-                if returncode == 3:
-                    repo["secrets_found"] = num_findings
-                    repo["report_path"] = report_path
-                    repos_dirty[repo["id"]] = repo
-                else:
-                    repo["secrets_found"] = 0
-                    repo["report_path"] = None
-                repo["scanned"] = target_branch
-
-                persistRepoData(repo)
-
-            else:
-                if config["verbose"] or picked_repo:
-                    print(f"Skipping [{repo["group"]}/{repo["name"]}], already scanned branch [{target_branch}]")
-        elif localVerbose:
-            print(
-                f"Repo [{repo['group']}/{repo['name']}] does not have a default branch, skipping")
-        if bar:
-            bar.next()
-    if bar:
-        bar.finish()
-    return repos_dirty
-
+    if not os.path.exists(f"{config["output_folder"]}/reports"):
+        os.mkdir(f"{config["output_folder"]}/reports")
 
 def copyDefaultGitleaksConfigsToFile():
     me_folder = os.path.dirname(os.path.realpath(__file__))
