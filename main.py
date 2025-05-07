@@ -457,11 +457,11 @@ def remove_repo_clones(repos: Dict[int, Repo]):
                 shutil.rmtree(repo["folder"])
 
 def writeFile(object, path):
+    data = {
+        "data_version": config["data_version"],
+        "data": object
+    }
     with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.tmp') as tmpfile:
-        data = {
-            "data_version": config["data_version"],
-            "data": object
-        }
         yaml.dump(data, tmpfile)
         tmp_path = tmpfile.name
     os.replace(tmp_path, path)  # Atomic rename

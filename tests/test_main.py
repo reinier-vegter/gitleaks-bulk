@@ -86,22 +86,22 @@ def mock_config():
     main.config = original_config
 
 # Tests for file operations
-@patch("builtins.open", new_callable=mock_open, read_data="mock data")
+@patch("os.replace")
 @patch("yaml.dump")
-def test_write_file(mock_yaml_dump, mock_file_open, mock_config):
+def test_write_file(mock_yaml_dump, mock_os_replace, mock_config):
     """Test the writeFile function"""
-    sample_data = {"key": "value"}
-    writeFile(sample_data, "test.yaml")
-    
-    # Check if file was opened
-    mock_file_open.assert_called_once_with("test.yaml", "w")
-    
-    # Check if yaml.dump was called
+    data = {"key": "value"}
+    writeFile(data, "test.yaml")
+
+    # Check if yaml.dump was called with correct arguments
     mock_yaml_dump.assert_called_once()
-    # The first arg should be a dict with data_version and data
-    args, _ = mock_yaml_dump.call_args
-    assert args[0]["data_version"] == mock_config["data_version"]
-    assert args[0]["data"] == sample_data
+    args, kwargs = mock_yaml_dump.call_args
+    assert args[0] == {"data_version": 1, "data": data}
+
+    mock_os_replace.assert_called_once()
+    args, kwargs = mock_os_replace.call_args
+    assert args[1] == "test.yaml"
+
 
 @patch("builtins.open", new_callable=mock_open)
 @patch("yaml.safe_load")
