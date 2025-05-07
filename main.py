@@ -82,7 +82,7 @@ def main():
             if not repo or not branch:
                 print("No repo selected, exiting")
                 sys.exit(0)
-            cloneRepo(repo, branch)
+            cloneRepo(repo, branch, verbose=True)
             repo = gitleaksScanRepo(repo, verbose=True, branch=branch)
             persistRepoData(repo)
             sys.exit(0)
