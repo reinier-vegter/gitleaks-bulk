@@ -464,7 +464,7 @@ def writeFile(object, path):
     with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.tmp') as tmpfile:
         yaml.dump(data, tmpfile)
         tmp_path = tmpfile.name
-    os.replace(tmp_path, path)  # Atomic rename
+    shutil.move(tmp_path, path)  # Atomic rename
 
 
 def readFile(path) -> Dict[int, Repo]:
