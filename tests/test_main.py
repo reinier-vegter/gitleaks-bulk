@@ -86,9 +86,9 @@ def mock_config():
     main.config = original_config
 
 # Tests for file operations
-@patch("os.replace")
+@patch("shutil.move")
 @patch("yaml.dump")
-def test_write_file(mock_yaml_dump, mock_os_replace, mock_config):
+def test_write_file(mock_yaml_dump, mock_shutil_move, mock_config):
     """Test the writeFile function"""
     data = {"key": "value"}
     writeFile(data, "test.yaml")
@@ -98,8 +98,8 @@ def test_write_file(mock_yaml_dump, mock_os_replace, mock_config):
     args, kwargs = mock_yaml_dump.call_args
     assert args[0] == {"data_version": 1, "data": data}
 
-    mock_os_replace.assert_called_once()
-    args, kwargs = mock_os_replace.call_args
+    mock_shutil_move.assert_called_once()
+    args, kwargs = mock_shutil_move.call_args
     assert args[1] == "test.yaml"
 
 
